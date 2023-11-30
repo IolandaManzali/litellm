@@ -8,7 +8,7 @@
 #  Thank you ! We ❤️ you! - Krrish & Ishaan 
 
 import os, openai, sys, json, inspect, uuid, datetime, threading
-from typing import Any
+from typing import Any, AsyncGenerator
 from functools import partial
 import dotenv, traceback, random, asyncio, time, contextvars
 from copy import deepcopy
@@ -21,6 +21,7 @@ from litellm import (  # type: ignore
     get_litellm_params,
     Logging,
 )
+from litellm.llms import clova_studio
 from litellm.utils import (
     get_secret,
     CustomStreamWrapper,
@@ -173,7 +174,8 @@ async def acompletion(*args, **kwargs):
             or custom_llm_provider == "deepinfra"
             or custom_llm_provider == "perplexity"
             or custom_llm_provider == "text-completion-openai"
-            or custom_llm_provider == "huggingface"): # currently implemented aiohttp calls for just azure and openai, soon all. 
+            or custom_llm_provider == "huggingface"
+            or custom_llm_provider == "clova-studio"): # currently implemented aiohttp calls for just azure, openai, and clova-studio, soon all. 
             if kwargs.get("stream", False): 
                 response = completion(*args, **kwargs)
             else:
@@ -1059,6 +1061,63 @@ def completion(
                 # don't try to access stream object,
                 response = CustomStreamWrapper(
                     model_response, model, custom_llm_provider="together_ai", logging_obj=logging
+                )
+                return response
+            response = model_response
+        elif custom_llm_provider == "clova-studio":
+            clova_studio_api_key = (
+                litellm.ncp_clova_studio_api_key
+                or get_secret("NCP_CLOVA_STUDIO_API_KEY")
+            )
+
+            apigw_api_key = (
+                litellm.ncp_apigw_api_key
+                or get_secret("NCP_APIGW_API_KEY")
+            )
+            
+            api_base = (
+                api_base
+                or litellm.api_base
+                or "https://clovastudio.apigw.ntruss.com"
+            )
+            
+            clova_studio_project = (
+                litellm.ncp_clova_studio_project
+                or get_secret("NCP_CLOVA_STUDIO_PROJECT")
+            )
+            
+            model_response = clova_studio.completion(
+                model=model,
+                messages=messages,
+                api_base=api_base,
+                model_response=model_response,
+                print_verbose=print_verbose,
+                optional_params=optional_params,
+                litellm_params=litellm_params,
+                logger_fn=logger_fn,
+                encoding=encoding,
+                clova_studio_api_key=clova_studio_api_key,
+                apigw_api_key=apigw_api_key,
+                clova_studio_project=clova_studio_project,
+                logging_obj=logging,
+                acompletion=acompletion, 
+            )
+            # fake streaming
+            if "stream" in optional_params and optional_params["stream"] == True:
+                # fake streaming for clova-studio
+                if acompletion:
+                    async def _fake_stream() -> AsyncGenerator[ModelResponse, None]:
+                        resp = await model_response
+                        resp_string = resp["choices"][0]["message"]["content"]
+                        stream_wrapper = CustomStreamWrapper(
+                            resp_string, model, custom_llm_provider="clova-studio", logging_obj=logging
+                        )
+                        async for item in stream_wrapper:
+                            yield item
+                    return _fake_stream()
+                resp_string = model_response["choices"][0]["message"]["content"]
+                response = CustomStreamWrapper(
+                    resp_string, model, custom_llm_provider="clova-studio", logging_obj=logging
                 )
                 return response
             response = model_response

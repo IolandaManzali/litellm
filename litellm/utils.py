@@ -2364,6 +2364,27 @@ def get_optional_params(  # use the openai defaults
             optional_params["stream"] = stream
         if max_tokens: 
             optional_params["max_tokens"] = max_tokens
+    elif custom_llm_provider == "clova-studio":
+        supported_params = ["stream", "top_p", "max_tokens", "temperature", "stop"]
+        _check_valid_arg(supported_params=supported_params)
+        optional_params = non_default_params
+        if temperature is not None:
+            optional_params["temperature"] = temperature
+        if top_p is not None:
+            if top_p == 0:
+                top_p = 0.0001 # close to 0
+            elif top_p == 1:
+                top_p = 0.9999 # close to 1
+            optional_params["topP"] = top_p
+            del optional_params["top_p"]
+        if max_tokens is not None:
+            optional_params["maxTokens"] = max_tokens
+            del optional_params["max_tokens"]
+        if stop is not None:
+            optional_params["stopBefore"] = stop
+            del optional_params["stop"]
+        if stream:
+            optional_params["stream"] = stream
     else:  # assume passing in params for openai/azure openai
         supported_params = ["functions", "function_call", "temperature", "top_p", "n", "stream", "stop", "max_tokens", "presence_penalty", "frequency_penalty", "logit_bias", "user", "response_format", "seed", "tools", "tool_choice", "max_retries"]
         _check_valid_arg(supported_params=supported_params)
@@ -2477,6 +2498,9 @@ def get_llm_provider(model: str, custom_llm_provider: Optional[str] = None, api_
         ## openrouter
         elif model in litellm.maritalk_models:
             custom_llm_provider = "maritalk"
+        ## clova studio
+        elif model in litellm.clova_studio_models:
+            custom_llm_provider = "clova-studio"
         ## vertex - text + chat models
         elif(
             model in litellm.vertex_chat_models or 
@@ -4519,6 +4543,56 @@ def exception_type(
                             model=model,
                             request=original_exception.request
                         )
+            elif custom_llm_provider == "clova-studio":
+                if hasattr(original_exception, "status_code"):
+                    if original_exception.status_code == 400:
+                        exception_mapping_worked = True
+                        raise BadRequestError(
+                            message=f"ClovaStudioException - {original_exception.message}",
+                            llm_provider="clova-studio",
+                            model=model,
+                            response=original_exception.response
+                        )
+                    elif original_exception.status_code == 401:
+                        exception_mapping_worked = True
+                        raise AuthenticationError(
+                            message=f"ClovaStudioException - {original_exception.message}",
+                            llm_provider="clova-studio",
+                            model=model,
+                            response=original_exception.response
+                        )
+                    elif original_exception.status_code == 403:
+                        exception_mapping_worked = True
+                        raise AuthenticationError(
+                            message=f"ClovaStudioException - {original_exception.message}",
+                            llm_provider="clova-studio",
+                            model=model,
+                            response=original_exception.response
+                        )
+                    elif original_exception.status_code == 408:
+                        exception_mapping_worked = True
+                        raise Timeout(
+                            message=f"ClovaStudioException - {original_exception.message}",
+                            llm_provider="clova-studio",
+                            model=model,
+                            request=original_exception.request
+                        )
+                    elif original_exception.status_code == 429:
+                        exception_mapping_worked = True
+                        raise RateLimitError(
+                            message=f"ClovaStudioException - {original_exception.message}",
+                            llm_provider="studio",
+                            model=model,
+                            response=original_exception.response
+                        )
+                    elif original_exception.status_code == 500:
+                        exception_mapping_worked = True
+                        raise ServiceUnavailableError(
+                            message=f"ClovaStudioException - {original_exception.message}",
+                            llm_provider="studio",
+                            model=model,
+                            response=original_exception.response
+                        )
             elif custom_llm_provider == "azure": 
                 if "This model's maximum context length is" in error_str:
                     exception_mapping_worked = True
@@ -5237,6 +5311,18 @@ class CustomStreamWrapper:
                 print_verbose(f"completion obj content: {completion_obj['content']}")
                 if response_obj["is_finished"]: 
                     model_response.choices[0].finish_reason = response_obj["finish_reason"]
+            elif self.custom_llm_provider == "clova-studio":
+                if len(self.completion_stream)==0:
+                    if self.sent_last_chunk: 
+                        raise StopIteration
+                    else:
+                        model_response.choices[0].finish_reason = "stop"
+                        self.sent_last_chunk = True
+                chunk_size = 30
+                new_chunk = self.completion_stream[:chunk_size]
+                completion_obj["content"] = new_chunk
+                self.completion_stream = self.completion_stream[chunk_size:]
+                time.sleep(0.05)
             else: # openai chat model
                 response_obj = self.handle_openai_chat_completion_chunk(chunk)
                 if response_obj == None:
