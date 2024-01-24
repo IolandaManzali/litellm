@@ -425,12 +425,21 @@ class PrismaClient:
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Authentication Error: invalid user key - token does not exist",
                     )
-            elif user_id is not None:
-                response = await self.db.litellm_usertable.find_unique(  # type: ignore
-                    where={
-                        "user_id": user_id,
-                    }
-                )
+            elif user_id is not None or (
+                table_name is not None and table_name == "user"
+            ):
+                if user_id is not None and query_type == "find_unique":
+                    response = await self.db.litellm_usertable.find_unique(  # type: ignore
+                        where={
+                            "user_id": user_id,
+                        }
+                    )
+                elif query_type == "find_all" and user_id is not None:
+                    response = await self.db.litellm_usertable.find_many(
+                        where={"user_id": user_id}
+                    )
+                elif query_type == "find_all":
+                    response = await self.db.litellm_usertable.find_many()
                 return response
             elif table_name == "user" and query_type == "find_all":
                 response = await self.db.litellm_usertable.find_many(  # type: ignore
