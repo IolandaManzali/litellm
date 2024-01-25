@@ -1,8 +1,10 @@
 import requests, types, time
 import json, uuid
 import traceback
-from typing import Optional
+from typing import Optional, List, Any
+from typing_extensions import TypedDict
 import litellm
+from litellm.utils import openai_token_counter, print_verbose
 import httpx, aiohttp, asyncio
 from .prompt_templates.factory import prompt_factory, custom_prompt
 
@@ -121,6 +123,63 @@ class OllamaConfig:
         }
 
 
+class MessageJSON(TypedDict):
+    role: str
+    content: str
+
+
+class ChatResponseJSON(TypedDict, total=False):
+    model: str
+    created_at: str
+    message: MessageJSON
+    done: bool
+    total_duration: int
+    load_duration: int
+    prompt_eval_count: int
+    prompt_eval_duration: int
+    eval_count: int
+    eval_duration: int
+
+
+# Usage metrics are only populated when the ollama response indicates `"done": true`
+# https://github.com/jmorganca/ollama/blob/main/docs/api.md#generate-a-chat-completion
+class OllamaChatUsage:
+    def __init__(self, messages: List[MessageJSON], response_json: ChatResponseJSON):
+        self.messages = messages
+        self.response_json = response_json
+
+    def get_usage(self):
+        if self._done() == False:
+            return litellm.Usage(
+                prompt_tokens=None,
+                completion_tokens=None,
+                total_tokens=None,
+            )
+
+        # metrics are sometimes missing from the response, so also use a fallback mechanism
+        self.prompt_tokens = self.response_json.get("prompt_eval_count", self._prompt_tokens_fallback())
+        self.completion_tokens = self.response_json.get("eval_count", self._completion_tokens_fallback())
+
+        return litellm.Usage(
+            prompt_tokens=self.prompt_tokens,
+            completion_tokens=self.completion_tokens,
+            total_tokens=self.prompt_tokens + self.completion_tokens,
+        )
+
+
+    def _done(self):
+       return self.response_json["done"] == True
+
+    def _prompt_tokens_fallback(self):
+        print_verbose(f"Warning: `prompt_eval_count` missing from response, estimating by using OpenAI token counting with cl100k_base encoding.")
+        return openai_token_counter(messages=self.messages)
+
+    def _completion_tokens_fallback(self):
+        print_verbose(f"Warning: `eval_count` missing from response, estimating by using OpenAI token counting with cl100k_base encoding.")
+        response = [self.response_json.get("message", {"role": "assistant", "content": ""})]
+        return openai_token_counter(messages=response)
+
+
 # ollama implementation
 def get_ollama_response(
     api_base="http://localhost:11434",
@@ -220,13 +279,7 @@ def get_ollama_response(
         model_response["choices"][0]["message"] = response_json["message"]
     model_response["created"] = int(time.time())
     model_response["model"] = "ollama/" + model
-    prompt_tokens = response_json.get("prompt_eval_count", len(encoding.encode(prompt)))  # type: ignore
-    completion_tokens = response_json["eval_count"]
-    model_response["usage"] = litellm.Usage(
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-        total_tokens=prompt_tokens + completion_tokens,
-    )
+    model_response["usage"] = OllamaChatUsage(data["messages"], response_json).get_usage()
     return model_response
 
 
@@ -320,13 +373,7 @@ async def ollama_acompletion(url, data, model_response, encoding, logging_obj):
                 model_response["choices"][0]["message"] = response_json["message"]
             model_response["created"] = int(time.time())
             model_response["model"] = "ollama/" + data["model"]
-            prompt_tokens = response_json.get("prompt_eval_count", len(encoding.encode(prompt)))  # type: ignore
-            completion_tokens = response_json["eval_count"]
-            model_response["usage"] = litellm.Usage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                total_tokens=prompt_tokens + completion_tokens,
-            )
+            model_response["usage"] = OllamaChatUsage(data["messages"], response_json).get_usage()
             return model_response
     except Exception as e:
         traceback.print_exc()
