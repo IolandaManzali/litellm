@@ -44,11 +44,10 @@ try:
 #     )  # for python 3.8 and 3.12
 except:
     # this works in python 3.9+
-    from importlib import resources
-
+    from importlib.resources import path as get_resource_path
     filename = str(
-        resources.files(litellm).joinpath("llms/tokenizers")  # for python 3.10
-    )  # for python 3.10+
+      get_resource_path(litellm,"llms/tokenizers"))
+    # for python 3.10+
 os.environ["TIKTOKEN_CACHE_DIR"] = (
     filename  # use local copy of tiktoken b/c of - https://github.com/BerriAI/litellm/issues/1071
 )
@@ -5784,7 +5783,10 @@ def get_llm_provider(
     try:
         dynamic_api_key = None
         # check if llm provider provided
-
+        if model == 'spark_ai':
+            custom_llm_provider = "spark_ai"
+            # print(model,custom_llm_provider,dynamic_api_key,api_base)
+            return model, custom_llm_provider, dynamic_api_key, api_base
         # AZURE AI-Studio Logic - Azure AI Studio supports AZURE/Cohere
         # If User passes azure/command-r-plus -> we should send it to cohere_chat/command-r-plus
         if model.split("/", 1)[0] == "azure":

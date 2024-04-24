@@ -455,7 +455,9 @@ petals_models = [
 ollama_models = ["llama2"]
 
 maritalk_models = ["maritalk"]
-
+#-------------
+spark_models = ["spark_ai"]
+#_____________
 model_list = (
     open_ai_chat_completion_models
     + open_ai_text_completion_models
@@ -478,6 +480,7 @@ model_list = (
     + perplexity_models
     + maritalk_models
     + vertex_language_models
+    +spark_models
 )
 
 provider_list: List = [
@@ -517,6 +520,7 @@ provider_list: List = [
     "xinference",
     "fireworks_ai",
     "custom",  # custom apis
+    "spark_ai",
 ]
 
 models_by_provider: dict = {
@@ -537,6 +541,7 @@ models_by_provider: dict = {
     "deepinfra": deepinfra_models,
     "perplexity": perplexity_models,
     "maritalk": maritalk_models,
+    "spark_ai": spark_models,
 }
 
 # mapping for those models which have larger equivalents
