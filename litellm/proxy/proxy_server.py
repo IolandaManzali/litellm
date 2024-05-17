@@ -6189,6 +6189,7 @@ async def global_spend_per_team():
         raise HTTPException(status_code=500, detail={"error": "No db connected"})
     sql_query = """
         SELECT
+            t.team_id as team_id,
             t.team_alias as team_alias,
             DATE(s."startTime") AS spend_date,
             SUM(s.spend) AS total_spend
@@ -6199,6 +6200,7 @@ async def global_spend_per_team():
         WHERE
             s."startTime" >= CURRENT_DATE - INTERVAL '30 days'
         GROUP BY
+            t.team_id,
             t.team_alias,
             DATE(s."startTime")
         ORDER BY
@@ -6210,6 +6212,7 @@ async def global_spend_per_team():
     spend_by_date = {}
     team_aliases = set()
     total_spend_per_team = {}
+    id_to_alias = {}
     for row in response:
         row_date = row["spend_date"]
         if row_date is None:
@@ -6217,7 +6220,14 @@ async def global_spend_per_team():
         team_alias = row["team_alias"]
         if team_alias is None:
             team_alias = "Unassigned"
+
+        team_id = row["team_id"]
+        if team_id is None:
+            team_id = "unassigned"
+
         team_aliases.add(team_alias)
+        id_to_alias[team_id] = team_alias
+
         if row_date in spend_by_date:
             # get the team_id for this entry
             # get the spend for this entry
@@ -6230,10 +6240,10 @@ async def global_spend_per_team():
             spend = round(spend, 2)
             spend_by_date[row_date] = {team_alias: spend}
 
-        if team_alias in total_spend_per_team:
-            total_spend_per_team[team_alias] += spend
+        if team_id in total_spend_per_team:
+            total_spend_per_team[team_id] += spend
         else:
-            total_spend_per_team[team_alias] = spend
+            total_spend_per_team[team_id] = spend
 
     total_spend_per_team_ui = []
     # order the elements in total_spend_per_team by spend
@@ -6244,10 +6254,9 @@ async def global_spend_per_team():
         # only add first 10 elements to total_spend_per_team_ui
         if len(total_spend_per_team_ui) >= 10:
             break
-        if team_id is None:
-            team_id = "Unassigned"
+
         total_spend_per_team_ui.append(
-            {"team_id": team_id, "total_spend": total_spend_per_team[team_id]}
+            {"team_id": team_id, "team_alias": id_to_alias[team_id], "total_spend": total_spend_per_team[team_id]}
         )
 
     # sort spend_by_date by it's key (which is a date)
