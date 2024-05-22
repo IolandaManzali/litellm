@@ -436,7 +436,6 @@ async def check_request_disconnection(request: Request, llm_api_call_task):
     while time.time() - start_time < 600:
         await asyncio.sleep(1)
         if await request.is_disconnected():
-
             # cancel the LLM API Call task if any passed - this is passed from individual providers
             # Example OpenAI, Azure, VertexAI etc
             llm_api_call_task.cancel()
@@ -450,7 +449,13 @@ async def check_request_disconnection(request: Request, llm_api_call_task):
 async def user_api_key_auth(
     request: Request, api_key: str = fastapi.Security(api_key_header)
 ) -> UserAPIKeyAuth:
-    global master_key, prisma_client, llm_model_list, user_custom_auth, custom_db_client, general_settings
+    global \
+        master_key, \
+        prisma_client, \
+        llm_model_list, \
+        user_custom_auth, \
+        custom_db_client, \
+        general_settings
     try:
         if isinstance(api_key, str):
             passed_in_key = api_key
@@ -548,13 +553,18 @@ async def user_api_key_auth(
                 # [OPTIONAL] track spend against an internal employee - `LiteLLM_UserTable`
                 user_object = None
                 user_id = jwt_handler.get_user_id(token=valid_token, default_value=None)
+                user_email = jwt_handler.get_user_email(
+                    token=valid_token, default_value=None
+                )
                 if user_id is not None:
                     # get the user object
                     user_object = await get_user_object(
                         user_id=user_id,
+                        user_email=user_email,
                         prisma_client=prisma_client,
                         user_api_key_cache=user_api_key_cache,
                         user_id_upsert=jwt_handler.is_upsert_user_id(),
+                        team_name_default=jwt_handler.get_team_name_default(),
                     )
 
                 # [OPTIONAL] track spend against an external user - `LiteLLM_EndUserTable`
@@ -2103,7 +2113,26 @@ class ProxyConfig:
         """
         Load config values into proxy global state
         """
-        global master_key, user_config_file_path, otel_logging, user_custom_auth, user_custom_auth_path, user_custom_key_generate, use_background_health_checks, health_check_interval, use_queue, custom_db_client, proxy_budget_rescheduler_max_time, proxy_budget_rescheduler_min_time, ui_access_mode, litellm_master_key_hash, proxy_batch_write_at, disable_spend_logs, prompt_injection_detection_obj, redis_usage_cache, store_model_in_db
+        global \
+            master_key, \
+            user_config_file_path, \
+            otel_logging, \
+            user_custom_auth, \
+            user_custom_auth_path, \
+            user_custom_key_generate, \
+            use_background_health_checks, \
+            health_check_interval, \
+            use_queue, \
+            custom_db_client, \
+            proxy_budget_rescheduler_max_time, \
+            proxy_budget_rescheduler_min_time, \
+            ui_access_mode, \
+            litellm_master_key_hash, \
+            proxy_batch_write_at, \
+            disable_spend_logs, \
+            prompt_injection_detection_obj, \
+            redis_usage_cache, \
+            store_model_in_db
 
         # Load existing config
         config = await self.get_config(config_file_path=config_file_path)
@@ -2769,7 +2798,8 @@ class ProxyConfig:
                             decoded_b64 = base64.b64decode(v)
                             # decrypt value
                             _litellm_params[k] = decrypt_value(
-                                value=decoded_b64, master_key=master_key  # type: ignore
+                                value=decoded_b64,
+                                master_key=master_key,  # type: ignore
                             )
                     _litellm_params = LiteLLM_Params(**_litellm_params)
                 else:
@@ -3192,7 +3222,23 @@ async def initialize(
     use_queue=False,
     config=None,
 ):
-    global user_model, user_api_base, user_debug, user_detailed_debug, user_user_max_tokens, user_request_timeout, user_temperature, user_telemetry, user_headers, experimental, llm_model_list, llm_router, general_settings, master_key, user_custom_auth, prisma_client
+    global \
+        user_model, \
+        user_api_base, \
+        user_debug, \
+        user_detailed_debug, \
+        user_user_max_tokens, \
+        user_request_timeout, \
+        user_temperature, \
+        user_telemetry, \
+        user_headers, \
+        experimental, \
+        llm_model_list, \
+        llm_router, \
+        general_settings, \
+        master_key, \
+        user_custom_auth, \
+        prisma_client
     generate_feedback_box()
     user_model = model
     user_debug = debug
@@ -3389,7 +3435,18 @@ def on_backoff(details):
 
 @router.on_event("startup")
 async def startup_event():
-    global prisma_client, master_key, use_background_health_checks, llm_router, llm_model_list, general_settings, proxy_budget_rescheduler_min_time, proxy_budget_rescheduler_max_time, litellm_proxy_admin_name, db_writer_client, store_model_in_db
+    global \
+        prisma_client, \
+        master_key, \
+        use_background_health_checks, \
+        llm_router, \
+        llm_model_list, \
+        general_settings, \
+        proxy_budget_rescheduler_min_time, \
+        proxy_budget_rescheduler_max_time, \
+        litellm_proxy_admin_name, \
+        db_writer_client, \
+        store_model_in_db
     import json
 
     ### LOAD MASTER KEY ###
@@ -5263,10 +5320,14 @@ async def update_key_fn(request: Request, data: UpdateKeyRequest):
         # get non default values for key
         non_default_values = {}
         for k, v in data_json.items():
-            if v is not None and v not in (
-                [],
-                {},
-                0,
+            if (
+                v is not None
+                and v
+                not in (
+                    [],
+                    {},
+                    0,
+                )
             ):  # models default to [], spend defaults to 0, we should not reset these values
                 non_default_values[k] = v
 
@@ -6272,7 +6333,7 @@ async def global_spend_logs(
     api_key: str = fastapi.Query(
         default=None,
         description="API Key to get global spend (spend per day for last 30d). Admin-only endpoint",
-    )
+    ),
 ):
     """
     [BETA] This is a beta endpoint. It will change.
@@ -6347,7 +6408,7 @@ async def global_spend_keys(
     limit: int = fastapi.Query(
         default=None,
         description="Number of keys to get. Will return Top 'n' keys.",
-    )
+    ),
 ):
     """
     [BETA] This is a beta endpoint. It will change.
@@ -6518,7 +6579,7 @@ async def global_spend_models(
     limit: int = fastapi.Query(
         default=None,
         description="Number of models to get. Will return Top 'n' models.",
-    )
+    ),
 ):
     """
     [BETA] This is a beta endpoint. It will change.
@@ -6674,11 +6735,25 @@ async def user_auth(request: Request):
     if response is not None:
         user_id = response.user_id
         response = await generate_key_helper_fn(
-            **{"duration": "24hr", "models": [], "aliases": {}, "config": {}, "spend": 0, "user_id": user_id}  # type: ignore
+            **{
+                "duration": "24hr",
+                "models": [],
+                "aliases": {},
+                "config": {},
+                "spend": 0,
+                "user_id": user_id,
+            }  # type: ignore
         )
     else:  ### else - create new user
         response = await generate_key_helper_fn(
-            **{"duration": "24hr", "models": [], "aliases": {}, "config": {}, "spend": 0, "user_email": user_email}  # type: ignore
+            **{
+                "duration": "24hr",
+                "models": [],
+                "aliases": {},
+                "config": {},
+                "spend": 0,
+                "user_email": user_email,
+            }  # type: ignore
         )
 
     base_url = os.getenv("LITELLM_HOSTED_UI", "https://dashboard.litellm.ai/")
@@ -6896,10 +6971,14 @@ async def user_update(data: UpdateUserRequest):
         # get non default values for key
         non_default_values = {}
         for k, v in data_json.items():
-            if v is not None and v not in (
-                [],
-                {},
-                0,
+            if (
+                v is not None
+                and v
+                not in (
+                    [],
+                    {},
+                    0,
+                )
             ):  # models default to [], spend defaults to 0, we should not reset these values
                 non_default_values[k] = v
 
@@ -7024,7 +7103,6 @@ async def user_get_requests():
     """
     global prisma_client
     try:
-
         # get the row from db
         if prisma_client is None:
             raise Exception("Not connected to DB!")
@@ -7064,7 +7142,7 @@ async def get_users(
     role: str = fastapi.Query(
         default=None,
         description="Either 'proxy_admin', 'proxy_viewer', 'app_owner', 'app_user'",
-    )
+    ),
 ):
     """
     [BETA] This could change without notice. Give feedback - https://github.com/BerriAI/litellm/issues
@@ -7657,7 +7735,6 @@ async def team_member_add(
         if existing_user_row is None or (
             isinstance(existing_user_row, list) and len(existing_user_row) == 0
         ):
-
             await prisma_client.insert_data(data=user_data, table_name="user")
 
     return team_row
@@ -7830,7 +7907,7 @@ async def delete_team(
 async def team_info(
     team_id: str = fastapi.Query(
         default=None, description="Team ID in the request parameters"
-    )
+    ),
 ):
     """
     get info on team + related keys
@@ -7927,7 +8004,8 @@ async def block_team(
         raise Exception("No DB Connected.")
 
     record = await prisma_client.db.litellm_teamtable.update(
-        where={"team_id": data.team_id}, data={"blocked": True}  # type: ignore
+        where={"team_id": data.team_id},
+        data={"blocked": True},  # type: ignore
     )
 
     return record
@@ -7949,7 +8027,8 @@ async def unblock_team(
         raise Exception("No DB Connected.")
 
     record = await prisma_client.db.litellm_teamtable.update(
-        where={"team_id": data.team_id}, data={"blocked": False}  # type: ignore
+        where={"team_id": data.team_id},
+        data={"blocked": False},  # type: ignore
     )
 
     return record
@@ -8262,7 +8341,16 @@ async def add_new_model(
     model_params: Deployment,
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
 ):
-    global llm_router, llm_model_list, general_settings, user_config_file_path, proxy_config, prisma_client, master_key, store_model_in_db, proxy_logging_obj
+    global \
+        llm_router, \
+        llm_model_list, \
+        general_settings, \
+        user_config_file_path, \
+        proxy_config, \
+        prisma_client, \
+        master_key, \
+        store_model_in_db, \
+        proxy_logging_obj
     try:
         import base64
 
@@ -8295,7 +8383,9 @@ async def add_new_model(
             _data: dict = {
                 "model_id": model_params.model_info.id,
                 "model_name": model_params.model_name,
-                "litellm_params": model_params.litellm_params.model_dump_json(exclude_none=True),  # type: ignore
+                "litellm_params": model_params.litellm_params.model_dump_json(
+                    exclude_none=True
+                ),  # type: ignore
                 "model_info": model_params.model_info.model_dump_json(  # type: ignore
                     exclude_none=True
                 ),
@@ -8364,7 +8454,16 @@ async def update_model(
     model_params: updateDeployment,
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
 ):
-    global llm_router, llm_model_list, general_settings, user_config_file_path, proxy_config, prisma_client, master_key, store_model_in_db, proxy_logging_obj
+    global \
+        llm_router, \
+        llm_model_list, \
+        general_settings, \
+        user_config_file_path, \
+        proxy_config, \
+        prisma_client, \
+        master_key, \
+        store_model_in_db, \
+        proxy_logging_obj
     try:
         import base64
 
@@ -8484,7 +8583,12 @@ async def model_info_v2(
     """
     BETA ENDPOINT. Might change unexpectedly. Use `/v1/model/info` for now.
     """
-    global llm_model_list, general_settings, user_config_file_path, proxy_config, llm_router
+    global \
+        llm_model_list, \
+        general_settings, \
+        user_config_file_path, \
+        proxy_config, \
+        llm_router
 
     if llm_model_list is None or not isinstance(llm_model_list, list):
         raise HTTPException(
@@ -8876,7 +8980,12 @@ async def model_info_v1(
     dependencies=[Depends(user_api_key_auth)],
 )
 async def delete_model(model_info: ModelInfoDelete):
-    global llm_router, llm_model_list, general_settings, user_config_file_path, proxy_config
+    global \
+        llm_router, \
+        llm_model_list, \
+        general_settings, \
+        user_config_file_path, \
+        proxy_config
     try:
         """
         [BETA] - This is a beta endpoint, format might change based on user feedback. - https://github.com/BerriAI/litellm/issues/964
@@ -9362,7 +9471,17 @@ async def login(request: Request):
         )
         if os.getenv("DATABASE_URL") is not None:
             response = await generate_key_helper_fn(
-                **{"user_role": "proxy_admin", "duration": "2hr", "key_max_budget": 5, "models": [], "aliases": {}, "config": {}, "spend": 0, "user_id": key_user_id, "team_id": "litellm-dashboard"}  # type: ignore
+                **{
+                    "user_role": "proxy_admin",
+                    "duration": "2hr",
+                    "key_max_budget": 5,
+                    "models": [],
+                    "aliases": {},
+                    "config": {},
+                    "spend": 0,
+                    "user_id": key_user_id,
+                    "team_id": "litellm-dashboard",
+                }  # type: ignore
             )
         else:
             raise ProxyException(
@@ -9658,7 +9777,8 @@ async def auth_callback(request: Request):
 
                 # update id
                 await prisma_client.db.litellm_usertable.update_many(
-                    where={"user_email": user_email}, data={"user_id": user_id}  # type: ignore
+                    where={"user_email": user_email},
+                    data={"user_id": user_id},  # type: ignore
                 )
             elif litellm.default_user_params is not None and isinstance(
                 litellm.default_user_params, dict
@@ -9677,7 +9797,8 @@ async def auth_callback(request: Request):
         f"user_defined_values for creating ui key: {user_defined_values}"
     )
     response = await generate_key_helper_fn(
-        **default_ui_key_values, **user_defined_values  # type: ignore
+        **default_ui_key_values,
+        **user_defined_values,  # type: ignore
     )
     key = response["token"]  # type: ignore
     user_id = response["user_id"]  # type: ignore
@@ -9736,7 +9857,14 @@ async def update_config(config_info: ConfigYAML):
 
     Currently supports modifying General Settings + LiteLLM settings
     """
-    global llm_router, llm_model_list, general_settings, proxy_config, proxy_logging_obj, master_key, prisma_client
+    global \
+        llm_router, \
+        llm_model_list, \
+        general_settings, \
+        proxy_config, \
+        proxy_logging_obj, \
+        master_key, \
+        prisma_client
     try:
         import base64
 
@@ -9819,7 +9947,6 @@ async def update_config(config_info: ConfigYAML):
                 "success_callback" in updated_litellm_settings
                 and "success_callback" in config["litellm_settings"]
             ):
-
                 # check both success callback are lists
                 if isinstance(
                     config["litellm_settings"]["success_callback"], list
@@ -9829,9 +9956,9 @@ async def update_config(config_info: ConfigYAML):
                         + updated_litellm_settings["success_callback"]
                     )
                     combined_success_callback = list(set(combined_success_callback))
-                    config["litellm_settings"][
-                        "success_callback"
-                    ] = combined_success_callback
+                    config["litellm_settings"]["success_callback"] = (
+                        combined_success_callback
+                    )
 
         # Save the updated config
         await proxy_config.save_config(new_config=config)
@@ -9938,7 +10065,10 @@ async def update_config_general_settings(
     response = await prisma_client.db.litellm_config.upsert(
         where={"param_name": "general_settings"},
         data={
-            "create": {"param_name": "general_settings", "param_value": json.dumps(general_settings)},  # type: ignore
+            "create": {
+                "param_name": "general_settings",
+                "param_value": json.dumps(general_settings),
+            },  # type: ignore
             "update": {"param_value": json.dumps(general_settings)},  # type: ignore
         },
     )
@@ -10063,7 +10193,6 @@ async def get_config_list(
 
     for field_name, field_info in ConfigGeneralSettings.model_fields.items():
         if field_name in allowed_args:
-
             _stored_in_db = None
             if field_name in db_general_settings_dict:
                 _stored_in_db = True
@@ -10145,7 +10274,10 @@ async def delete_config_general_settings(
     response = await prisma_client.db.litellm_config.upsert(
         where={"param_name": "general_settings"},
         data={
-            "create": {"param_name": "general_settings", "param_value": json.dumps(general_settings)},  # type: ignore
+            "create": {
+                "param_name": "general_settings",
+                "param_value": json.dumps(general_settings),
+            },  # type: ignore
             "update": {"param_value": json.dumps(general_settings)},  # type: ignore
         },
     )
@@ -10165,7 +10297,13 @@ async def get_config():
     # return the callbacks and the env variables for the callback
 
     """
-    global llm_router, llm_model_list, general_settings, proxy_config, proxy_logging_obj, master_key
+    global \
+        llm_router, \
+        llm_model_list, \
+        general_settings, \
+        proxy_config, \
+        proxy_logging_obj, \
+        master_key
     try:
         import base64
 
@@ -10538,7 +10676,11 @@ async def health_endpoint(
     ```
     else, the health checks will be run on models when /health is called.
     """
-    global health_check_results, use_background_health_checks, user_model, llm_model_list
+    global \
+        health_check_results, \
+        use_background_health_checks, \
+        user_model, \
+        llm_model_list
     try:
         if llm_model_list is None:
             # if no router set, check if user set a model using litellm --model ollama/llama2
@@ -11050,7 +11192,17 @@ async def shutdown_event():
 
 
 def cleanup_router_config_variables():
-    global master_key, user_config_file_path, otel_logging, user_custom_auth, user_custom_auth_path, user_custom_key_generate, use_background_health_checks, health_check_interval, prisma_client, custom_db_client
+    global \
+        master_key, \
+        user_config_file_path, \
+        otel_logging, \
+        user_custom_auth, \
+        user_custom_auth_path, \
+        user_custom_key_generate, \
+        use_background_health_checks, \
+        health_check_interval, \
+        prisma_client, \
+        custom_db_client
 
     # Set all variables to None
     master_key = None

@@ -228,6 +228,14 @@ class LiteLLM_JWTAuth(LiteLLMBase):
     user_id_upsert: bool = Field(
         default=False, description="If user doesn't exist, upsert them into the db."
     )
+    user_email_jwt_field: Optional[str] = Field(
+        default="email",
+        description='If no user_email_jwt_field given, default valid is "email".',
+    )
+    team_name_default: Optional[str] = Field(
+        default=None,
+        description="If no team_id given, default permissions/spend-tracking to this team.s. If team doesn't exist, it will be upserted into the db",
+    )
     end_user_id_jwt_field: Optional[str] = None
     public_key_ttl: float = 600
 
@@ -408,9 +416,9 @@ class GenerateKeyRequest(GenerateRequestBase):
     aliases: Optional[dict] = {}
     config: Optional[dict] = {}
     permissions: Optional[dict] = {}
-    model_max_budget: Optional[dict] = (
-        {}
-    )  # {"gpt-4": 5.0, "gpt-3.5-turbo": 5.0}, defaults to {}
+    model_max_budget: Optional[
+        dict
+    ] = {}  # {"gpt-4": 5.0, "gpt-3.5-turbo": 5.0}, defaults to {}
 
     class Config:
         protected_namespaces = ()
