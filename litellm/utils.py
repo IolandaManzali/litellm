@@ -190,6 +190,25 @@ last_fetched_at_keys = None
 # }
 
 
+############################################################
+def print_verbose(
+    print_statement,
+    logger_only: bool = False,
+    log_level: Literal["DEBUG", "INFO"] = "DEBUG",
+):
+    try:
+        if log_level == "DEBUG":
+            verbose_logger.debug(print_statement)
+        elif log_level == "INFO":
+            verbose_logger.info(print_statement)
+        if litellm.set_verbose == True and logger_only == False:
+            print(print_statement)  # noqa
+    except:
+        pass
+
+
+####### LOGGING ###########################################
+
 class UnsupportedParamsError(Exception):
     def __init__(self, status_code, message):
         self.status_code = status_code
@@ -1093,24 +1112,7 @@ class TranscriptionResponse(OpenAIObject):
             return self.dict()
 
 
-############################################################
-def print_verbose(
-    print_statement,
-    logger_only: bool = False,
-    log_level: Literal["DEBUG", "INFO"] = "DEBUG",
-):
-    try:
-        if log_level == "DEBUG":
-            verbose_logger.debug(print_statement)
-        elif log_level == "INFO":
-            verbose_logger.info(print_statement)
-        if litellm.set_verbose == True and logger_only == False:
-            print(print_statement)  # noqa
-    except:
-        pass
 
-
-####### LOGGING ###################
 from enum import Enum
 
 
@@ -6874,11 +6876,11 @@ def get_llm_provider(
             custom_llm_provider = "openai"
         if custom_llm_provider is None or custom_llm_provider == "":
             if litellm.suppress_debug_info == False:
-                print()  # noqa
-                print(  # noqa
+                print_verbose()  # noqa
+                print_verbose(  # noqa
                     "\033[1;31mProvider List: https://docs.litellm.ai/docs/providers\033[0m"  # noqa
                 )  # noqa
-                print()  # noqa
+                print_verbose()  # noqa
             error_str = f"LLM Provider NOT provided. Pass in the LLM provider you are trying to call. You passed model={model}\n Pass model as E.g. For 'Huggingface' inference endpoints pass in `completion(model='huggingface/starcoder',..)` Learn more: https://docs.litellm.ai/docs/providers"
             # maps to openai.NotFoundError, this is raised when openai does not recognize the llm
             raise litellm.exceptions.BadRequestError(  # type: ignore
@@ -8392,14 +8394,14 @@ def exception_type(
     global user_logger_fn, liteDebuggerClient
     exception_mapping_worked = False
     if litellm.suppress_debug_info is False:
-        print()  # noqa
-        print(  # noqa
+        print_verbose()  # noqa
+        print_verbose(  # noqa
             "\033[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new\033[0m"  # noqa
         )  # noqa
-        print(  # noqa
+        print_verbose(  # noqa
             "LiteLLM.Info: If you need to debug this error, use `litellm.set_verbose=True'."  # noqa
         )  # noqa
-        print()  # noqa
+        print_verbose()  # noqa
     try:
         if model:
             error_str = str(original_exception)
@@ -11849,7 +11851,7 @@ class TextCompletionStreamWrapper:
         except StopIteration:
             raise StopIteration
         except Exception as e:
-            print(f"got exception {e}")  # noqa
+            print_verbose(f"got exception {e}")  # noqa
 
     async def __anext__(self):
         try:
