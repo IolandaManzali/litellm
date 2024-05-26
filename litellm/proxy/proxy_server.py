@@ -3872,6 +3872,11 @@ async def chat_completion(
         if "api-version" in query_params:
             data["api_version"] = query_params["api-version"]
 
+        # Allow OpenAI Spec Auth headers
+        if litellm.use_llm_key_in_header or 'api_key' not in data:
+            if auth_bearer := request.headers.get('AUTHORIZATION'):
+                data['api_key'] = _get_bearer_token(auth_bearer)
+
         # Include original request and headers in the data
         data["proxy_server_request"] = {
             "url": str(request.url),
@@ -7761,9 +7766,9 @@ async def new_end_user(
     """
     [TODO] Needs to be implemented.
 
-    Allow creating a new end-user 
+    Allow creating a new end-user
 
-    - Allow specifying allowed regions 
+    - Allow specifying allowed regions
     - Allow specifying default model
 
     Example curl:
@@ -7773,12 +7778,12 @@ async def new_end_user(
         --header 'Content-Type: application/json' \
         --data '{
             "end_user_id" : "ishaan-jaff-3", <- specific customer
-            
-            "allowed_region": "eu" <- set region for models        
 
-                    + 
+            "allowed_region": "eu" <- set region for models
 
-            "default_model": "azure/gpt-3.5-turbo-eu" <- all calls from this user, use this model? 
+                    +
+
+            "default_model": "azure/gpt-3.5-turbo-eu" <- all calls from this user, use this model?
 
         }'
 
@@ -8087,7 +8092,7 @@ async def update_team(
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
 ):
     """
-    Use `/team/member_add` AND `/team/member/delete` to add/remove new team members  
+    Use `/team/member_add` AND `/team/member/delete` to add/remove new team members
 
     You can now update team budget / rate limits via /team/update
 
