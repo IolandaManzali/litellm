@@ -773,10 +773,10 @@ class RedisSemanticCache(BaseCache):
         similarity_threshold=None,
         use_async=False,
         embedding_model="text-embedding-ada-002",
+        embedding_vector_length=1536,
         **kwargs,
     ):
         from redisvl.index import SearchIndex
-        from redisvl.query import VectorQuery
 
         print_verbose(
             "redis semantic-cache initializing INDEX - litellm_semantic_cache_index"
@@ -792,12 +792,14 @@ class RedisSemanticCache(BaseCache):
                 "storage_type": "hash",
             },
             "fields": {
-                "text": [{"name": "response"}],
-                "text": [{"name": "prompt"}],
+                "text": [
+                    {"name": "response"},
+                    {"name": "prompt"},
+                ],
                 "vector": [
                     {
                         "name": "litellm_embedding",
-                        "dims": 1536,
+                        "dims": embedding_vector_length,
                         "distance_metric": "cosine",
                         "algorithm": "flat",
                         "datatype": "float32",
@@ -819,19 +821,18 @@ class RedisSemanticCache(BaseCache):
 
             redis_url = "redis://:" + password + "@" + host + ":" + port
         print_verbose(f"redis semantic-cache redis_url: {redis_url}")
-        if use_async == False:
+        if not use_async:
             self.index = SearchIndex.from_dict(schema)
             self.index.connect(redis_url=redis_url)
             try:
                 self.index.create(overwrite=False)  # don't overwrite existing index
             except Exception as e:
                 print_verbose(f"Got exception creating semantic cache index: {str(e)}")
-        elif use_async == True:
+        else:
             schema["index"]["name"] = "litellm_semantic_cache_index_async"
             self.index = SearchIndex.from_dict(schema)
             self.index.connect(redis_url=redis_url, use_async=True)
 
-    #
     def _get_cache_logic(self, cached_response: Any):
         """
         Common 'get_cache_logic' across sync + async redis client implementations
@@ -851,14 +852,24 @@ class RedisSemanticCache(BaseCache):
             cached_response = ast.literal_eval(cached_response)
         return cached_response
 
+    def _get_prompt(self, messages):
+        prompt = ""
+        for message in messages:
+            if "content" in message and isinstance(message["content"], str):
+                prompt += message["content"]
+        
+        return prompt
+
     def set_cache(self, key, value, **kwargs):
         import numpy as np
 
         print_verbose(f"redis semantic-cache set_cache, kwargs: {kwargs}")
 
-        # get the prompt
+        if "messages" not in kwargs:
+            return None
+
         messages = kwargs["messages"]
-        prompt = "".join(message["content"] for message in messages)
+        prompt = self._get_prompt(messages)
 
         # create an embedding for prompt
         embedding_response = litellm.embedding(
@@ -887,13 +898,12 @@ class RedisSemanticCache(BaseCache):
     def get_cache(self, key, **kwargs):
         print_verbose(f"sync redis semantic-cache get_cache, kwargs: {kwargs}")
         from redisvl.query import VectorQuery
-        import numpy as np
 
-        # query
+        if "messages" not in kwargs:
+            return None
 
-        # get the messages
         messages = kwargs["messages"]
-        prompt = "".join(message["content"] for message in messages)
+        prompt = self._get_prompt(messages)
 
         # convert to embedding
         embedding_response = litellm.embedding(
@@ -913,7 +923,7 @@ class RedisSemanticCache(BaseCache):
         )
 
         results = self.index.query(query)
-        if results == None:
+        if results is None:
             return None
         if isinstance(results, list):
             if len(results) == 0:
@@ -939,8 +949,6 @@ class RedisSemanticCache(BaseCache):
             # cache miss !
             return None
 
-        pass
-
     async def async_set_cache(self, key, value, **kwargs):
         import numpy as np
         from litellm.proxy.proxy_server import llm_router, llm_model_list
@@ -951,9 +959,12 @@ class RedisSemanticCache(BaseCache):
             print_verbose(f"Got exception creating semantic cache index: {str(e)}")
         print_verbose(f"async redis semantic-cache set_cache, kwargs: {kwargs}")
 
-        # get the prompt
+        if "messages" not in kwargs:
+            return None
+
         messages = kwargs["messages"]
-        prompt = "".join(message["content"] for message in messages)
+        prompt = self._get_prompt(messages)
+
         # create an embedding for prompt
         router_model_names = (
             [m["model_name"] for m in llm_model_list]
@@ -985,11 +996,16 @@ class RedisSemanticCache(BaseCache):
 
         # make the embedding a numpy array, convert to bytes
         embedding_bytes = np.array(embedding, dtype=np.float32).tobytes()
+
         value = str(value)
         assert isinstance(value, str)
 
         new_data = [
-            {"response": value, "prompt": prompt, "litellm_embedding": embedding_bytes}
+            {
+                "response": value,
+                "prompt": prompt,
+                "litellm_embedding": embedding_bytes,
+            }
         ]
 
         # Add more data
@@ -999,14 +1015,13 @@ class RedisSemanticCache(BaseCache):
     async def async_get_cache(self, key, **kwargs):
         print_verbose(f"async redis semantic-cache get_cache, kwargs: {kwargs}")
         from redisvl.query import VectorQuery
-        import numpy as np
         from litellm.proxy.proxy_server import llm_router, llm_model_list
 
-        # query
+        if "messages" not in kwargs:
+            return None
 
-        # get the messages
         messages = kwargs["messages"]
-        prompt = "".join(message["content"] for message in messages)
+        prompt = self._get_prompt(messages)
 
         router_model_names = (
             [m["model_name"] for m in llm_model_list]
@@ -1041,8 +1056,9 @@ class RedisSemanticCache(BaseCache):
             vector_field_name="litellm_embedding",
             return_fields=["response", "prompt", "vector_distance"],
         )
+
         results = await self.index.aquery(query)
-        if results == None:
+        if results is None:
             kwargs.setdefault("metadata", {})["semantic-similarity"] = 0.0
             return None
         if isinstance(results, list):
@@ -1493,12 +1509,409 @@ class DualCache(BaseCache):
             self.redis_cache.delete_cache(key)
 
 
+class DualSemanticCache(BaseCache):
+    def __init__(
+        self,
+        host=None,
+        port=None,
+        password=None,
+        redis_url=None,
+        similarity_threshold=0.81,
+        use_async=False,
+        embedding_model_name="local/multi-qa-MiniLM-L6-cos-v1",
+        embedding_vector_length=384,
+        in_memory_cache: Optional[InMemoryCache] = None,
+        in_memory_default_ttl: Optional[float] = None,
+        **kwargs,
+    ):
+        self.in_memory_cache = in_memory_cache or InMemoryCache()
+        self.in_memory_default_ttl = (
+            in_memory_default_ttl or litellm.default_in_memory_ttl
+        )
+
+        from redisvl.index import SearchIndex
+
+        print_verbose(
+            f"dual-semantic-cache initializing INDEX - litellm_semantic_cache_index ({similarity_threshold}) - {embedding_model_name}"
+        )
+
+        self.similarity_threshold = similarity_threshold
+        self.embedding_model_name = embedding_model_name
+        self.embedding_vector_length = embedding_vector_length
+
+        schema = {
+            "index": {
+                "name": f"litellm_semantic_cache_{embedding_vector_length}_index",
+                "prefix": "litellm",
+                "storage_type": "hash",
+            },
+            "fields": {
+                "text": [
+                    {"name": "response"},
+                    {"name": "prompt"},
+                    {"name": "response_hash"},
+                ],
+                "vector": [
+                    {
+                        "name": "litellm_embedding",
+                        "dims": self.embedding_vector_length,
+                        "distance_metric": "cosine",
+                        "algorithm": "flat",
+                        "datatype": "float32",
+                    }
+                ],
+            },
+        }
+
+        if redis_url is None:
+            # if no url passed, check if host, port and password are passed, if not raise an Exception
+            if host is None or port is None or password is None:
+                # try checking env for host, port and password
+                import os
+
+                host = os.getenv("REDIS_HOST")
+                port = os.getenv("REDIS_PORT")
+                password = os.getenv("REDIS_PASSWORD")
+                if host is None or port is None or password is None:
+                    raise Exception("Redis host, port, and password must be provided")
+
+            redis_url = "redis://:" + password + "@" + host + ":" + port
+        print_verbose(f"dual-semantic-cache redis_url: {redis_url} ({use_async})")
+        if not use_async:
+            self.index = SearchIndex.from_dict(schema)
+            self.index.connect(redis_url=redis_url)
+            try:
+                self.index.create(overwrite=False)
+
+            except Exception as e:
+                print_verbose(
+                    f"dual-semantic-cache: Got exception creating semantic cache index: {str(e)}"
+                )
+        else:
+            schema["index"]["name"] = (
+                f"litellm_semantic_cache_{embedding_vector_length}_index_async"
+            )
+            self.index = SearchIndex.from_dict(schema)
+            self.index.connect(redis_url=redis_url, use_async=True)
+
+    def _get_cache_logic(self, cached_response: Any):
+        """
+        Common 'get_cache_logic' across sync + async redis client implementations
+        """
+        if cached_response is None:
+            return cached_response
+
+        # check if cached_response is bytes
+        if isinstance(cached_response, bytes):
+            cached_response = cached_response.decode("utf-8")
+
+        try:
+            cached_response = json.loads(
+                cached_response
+            )  # Convert string to dictionary
+        except:
+            cached_response = ast.literal_eval(cached_response)
+        return cached_response
+
+    def _get_prompt(self, messages):
+        prompt = ""
+        for message in messages:
+            if "content" in message and isinstance(message["content"], str):
+                prompt += message["content"]
+
+        return prompt
+
+    def set_cache(self, key, value, **kwargs):
+        import numpy as np
+
+        print_verbose(f"dual-semantic-cache (sync) set_cache, kwargs: {kwargs}")
+
+        if "messages" not in kwargs:
+            return None
+
+        messages = kwargs["messages"]
+        prompt = self._get_prompt(messages)
+
+        embedding_response = litellm.embedding(
+            model=self.embedding_model_name,
+            input=prompt,
+            cache={"no-store": True, "no-cache": True},
+        )
+
+        # get the embedding
+        embedding = embedding_response["data"][0]["embedding"]
+
+        # make the embedding a numpy array, convert to bytes
+        embedding_bytes = np.array(embedding, dtype=np.float32).tobytes()
+
+        if self.in_memory_cache is not None:
+            if "ttl" not in kwargs and self.in_memory_default_ttl is not None:
+                kwargs["ttl"] = self.in_memory_default_ttl
+
+            self.in_memory_cache.set_cache(key, value, **kwargs)
+        else:
+            print_verbose(
+                "dual-semantic-cache (sync) set_cache: in_memory_cache is None"
+            )
+
+        value = str(value)
+        assert isinstance(value, str)
+
+        self.index.load(
+            [
+                {
+                    "response": value,
+                    "prompt": prompt,
+                    "litellm_embedding": embedding_bytes,
+                }
+            ]
+        )
+
+    def get_cache(self, key, **kwargs):
+        print_verbose(f"dual-semantic-cache (sync) get_cache, kwargs: {kwargs}")
+
+        if self.in_memory_cache is not None:
+            in_memory_result = self.in_memory_cache.get_cache(key, **kwargs)
+
+            if in_memory_result is not None:
+                print_verbose("dual-semantic-cache (sync) in-memory-cache hit")
+                return in_memory_result
+            else:
+                print_verbose(
+                    "dual-semantic-cache (sync) get_cache: in-memory-cache miss"
+                )
+
+        else:
+            print_verbose(
+                "dual-semantic-cache (sync) get_cache: in_memory_cache is None"
+            )
+
+        from redisvl.query import VectorQuery
+
+        if "messages" not in kwargs:
+            return None
+
+        messages = kwargs["messages"]
+        prompt = self._get_prompt(messages)
+
+        embedding_response = litellm.embedding(
+            model=self.embedding_model_name,
+            input=prompt,
+            cache={"no-store": True, "no-cache": True},
+        )
+
+        # get the embedding
+        embedding = embedding_response["data"][0]["embedding"]
+
+        query = VectorQuery(
+            vector=embedding,
+            vector_field_name="litellm_embedding",
+            return_fields=["response", "prompt", "vector_distance"],
+            num_results=1,
+        )
+
+        results = self.index.query(query)
+        if results is None:
+            return None
+        if isinstance(results, list):
+            if len(results) == 0:
+                return None
+
+        vector_distance = results[0]["vector_distance"]
+        vector_distance = float(vector_distance)
+        similarity = 1 - vector_distance
+        cached_prompt = results[0]["prompt"]
+
+        # check similarity, if more than self.similarity_threshold, return results
+        print_verbose(
+            f"dual-semantic-cache (sync): similarity threshold: {self.similarity_threshold}, similarity: {similarity}, prompt: {prompt}, closest_cached_prompt: {cached_prompt}"
+        )
+        if similarity > self.similarity_threshold:
+            cached_value = results[0]["response"]
+            print_verbose(
+                f"dual-semantic-cache (sync) cache hit, similarity: {similarity}, Current prompt: {prompt}, cached_prompt: {cached_prompt}"
+            )
+            return self._get_cache_logic(cached_response=cached_value)
+        else:
+            return None
+
+    async def async_set_cache(self, key, value: dict, **kwargs):
+        import numpy as np
+        from litellm.proxy.proxy_server import llm_router, llm_model_list
+
+        try:
+            await self.index.acreate(overwrite=False)
+
+        except Exception as e:
+            print_verbose(
+                f"dual-semantic-cache (async): exception creating semantic cache index: {str(e)}"
+            )
+            return
+
+        print_verbose(f"dual-semantic-cache (async) set_cache, kwargs: {kwargs}")
+
+        if "messages" not in kwargs:
+            return None
+
+        messages = kwargs["messages"]
+        prompt = self._get_prompt(messages)
+
+        router_model_names = (
+            [m["model_name"] for m in llm_model_list]
+            if llm_model_list is not None
+            else []
+        )
+        if llm_router is not None and self.embedding_model_name in router_model_names:
+            user_api_key = kwargs.get("metadata", {}).get("user_api_key", "")
+            embedding_response = await llm_router.aembedding(
+                model=self.embedding_model_name,
+                input=prompt,
+                cache={"no-store": True, "no-cache": True},
+                metadata={
+                    "user_api_key": user_api_key,
+                    "semantic-cache-embedding": True,
+                    "trace_id": kwargs.get("metadata", {}).get("trace_id", None),
+                },
+            )
+        else:
+            # convert to embedding
+            embedding_response = await litellm.aembedding(
+                model=self.embedding_model_name,
+                input=prompt,
+                cache={"no-store": True, "no-cache": True},
+            )
+
+        # get the embedding
+        embedding = embedding_response["data"][0]["embedding"]
+        embedding_bytes = np.array(embedding, dtype=np.float32).tobytes()
+
+        if self.in_memory_cache is not None:
+            await self.in_memory_cache.async_set_cache(key, value, **kwargs)
+        else:
+            print_verbose(
+                "dual-semantic-cache (sync) set_cache: in_memory_cache is None"
+            )
+
+        value = str(value)
+        assert isinstance(value, str)
+
+        await self.index.aload(
+            [
+                {
+                    "response": value,
+                    "prompt": prompt,
+                    "litellm_embedding": embedding_bytes,
+                }
+            ]
+        )
+
+    async def async_get_cache(self, key, **kwargs):
+        from litellm.proxy.proxy_server import llm_router, llm_model_list
+
+        print_verbose(f"dual-semantic-cache (async) get_cache, kwargs: {kwargs}")
+
+        if self.in_memory_cache is not None:
+            in_memory_result = await self.in_memory_cache.async_get_cache(key, **kwargs)
+
+            if in_memory_result is not None:
+                print_verbose("dual-semantic-cache (async) in-memory-cache hit")
+                return in_memory_result
+            else:
+                print_verbose(
+                    "dual-semantic-cache (async) get_cache: in-memory-cache cache miss"
+                )
+
+        else:
+            print_verbose(
+                "dual-semantic-cache (async) get_cache: in_memory_cache is None"
+            )
+
+        from redisvl.query import VectorQuery
+
+        if "messages" not in kwargs:
+            return None
+
+        messages = kwargs["messages"]
+        prompt = self._get_prompt(messages)
+
+        router_model_names = (
+            [m["model_name"] for m in llm_model_list]
+            if llm_model_list is not None
+            else []
+        )
+        if llm_router is not None and self.embedding_model_name in router_model_names:
+            user_api_key = kwargs.get("metadata", {}).get("user_api_key", "")
+            embedding_response = await llm_router.aembedding(
+                model=self.embedding_model_name,
+                input=prompt,
+                cache={"no-store": True, "no-cache": True},
+                metadata={
+                    "user_api_key": user_api_key,
+                    "semantic-cache-embedding": True,
+                    "trace_id": kwargs.get("metadata", {}).get("trace_id", None),
+                },
+            )
+        else:
+            # convert to embedding
+            embedding_response = await litellm.aembedding(
+                model=self.embedding_model_name,
+                input=prompt,
+                cache={"no-store": True, "no-cache": True},
+            )
+
+        # get the embedding
+        embedding = embedding_response["data"][0]["embedding"]
+
+        query = VectorQuery(
+            vector=embedding,
+            vector_field_name="litellm_embedding",
+            return_fields=["response", "prompt", "vector_distance"],
+        )
+        print_verbose(f"dual-semantic-cache (async): {query}")
+
+        results = await self.index.aquery(query)
+        if results is None:
+            kwargs.setdefault("metadata", {})["semantic-similarity"] = 0.0
+            return None
+        if isinstance(results, list):
+            if len(results) == 0:
+                kwargs.setdefault("metadata", {})["semantic-similarity"] = 0.0
+                return None
+
+        vector_distance = results[0]["vector_distance"]
+        vector_distance = float(vector_distance)
+        similarity = 1 - vector_distance
+        cached_prompt = results[0]["prompt"]
+
+        # check similarity, if more than self.similarity_threshold, return results
+        print_verbose(
+            f"dual-semantic-cache (async): similarity threshold: {self.similarity_threshold}, similarity: {similarity}, prompt: {prompt}, closest_cached_prompt: {cached_prompt}"
+        )
+
+        # update kwargs["metadata"] with similarity, don't rewrite the original metadata
+        kwargs.setdefault("metadata", {})["semantic-similarity"] = similarity
+
+        if similarity > self.similarity_threshold:
+            cached_value = results[0]["response"]
+            print_verbose(
+                f"dual-semantic-cache (async) cache hit, similarity: {similarity}, Current prompt: {prompt}, cached_prompt: {cached_prompt}"
+            )
+            print_verbose(f"litellm-semantic-cache (async): {cached_value}")
+            return self._get_cache_logic(cached_response=cached_value)
+        else:
+            print_verbose("dual-semantic-cache (async) cache miss")
+            return None
+
+    async def _index_info(self):
+        return await self.index.ainfo()
+
+
 #### LiteLLM.Completion / Embedding Cache ####
 class Cache:
     def __init__(
         self,
         type: Optional[
-            Literal["local", "redis", "redis-semantic", "s3", "disk"]
+            Literal["local", "redis", "redis-semantic", "dual-semantic", "s3", "disk"]
         ] = "local",
         host: Optional[str] = None,
         port: Optional[str] = None,
@@ -1541,6 +1954,7 @@ class Cache:
         s3_path: Optional[str] = None,
         redis_semantic_cache_use_async=False,
         redis_semantic_cache_embedding_model="text-embedding-ada-002",
+        semantic_cache_embedding_length=4096,
         redis_flush_size=None,
         disk_cache_dir=None,
         **kwargs,
@@ -1578,6 +1992,17 @@ class Cache:
                 embedding_model=redis_semantic_cache_embedding_model,
                 **kwargs,
             )
+        elif type == "dual-semantic":
+            self.cache = DualSemanticCache(
+                host,
+                port,
+                password,
+                similarity_threshold=similarity_threshold,
+                use_async=redis_semantic_cache_use_async,
+                embedding_model_name=redis_semantic_cache_embedding_model,
+                embedding_vector_length=semantic_cache_embedding_length,
+                **kwargs,
+            )
         elif type == "local":
             self.cache = InMemoryCache()
         elif type == "s3":
@@ -1613,7 +2038,9 @@ class Cache:
             self.ttl = default_in_memory_ttl
 
         if (
-            self.type == "redis" or self.type == "redis-semantic"
+            self.type == "redis"
+            or self.type == "redis-semantic"
+            or self.type == "dual-semantic"
         ) and default_in_redis_ttl is not None:
             self.ttl = default_in_redis_ttl
 

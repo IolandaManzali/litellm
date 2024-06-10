@@ -58,7 +58,7 @@ proxy = [
     "fastapi-sso",
     "PyJWT",
     "python-multipart",
-    "cryptography"
+    "cryptography",
 ]
 
 extra_proxy = [
