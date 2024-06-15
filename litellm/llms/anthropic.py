@@ -5,7 +5,10 @@ import requests, copy  # type: ignore
 import time
 from functools import partial
 from typing import Callable, Optional, List, Union
-from litellm.utils import ModelResponse, Usage, map_finish_reason, CustomStreamWrapper
+import litellm.litellm_core_utils
+from litellm.utils import ModelResponse, Usage, CustomStreamWrapper
+from litellm.types.utils import ModelResponseChunk
+from litellm.litellm_core_utils.core_helpers import map_finish_reason
 import litellm
 from .prompt_templates.factory import prompt_factory, custom_prompt
 from litellm.llms.custom_httpx.http_handler import (
@@ -205,7 +208,7 @@ class AnthropicChatCompletion(BaseLLM):
         response: Union[requests.Response, httpx.Response],
         model_response: ModelResponse,
         stream: bool,
-        logging_obj: litellm.utils.Logging,
+        logging_obj: litellm.litellm_core_utils.litellm_logging.Logging,
         optional_params: dict,
         api_key: str,
         data: Union[dict, str],
@@ -268,7 +271,7 @@ class AnthropicChatCompletion(BaseLLM):
 
         print_verbose("INSIDE ANTHROPIC STREAMING TOOL CALLING CONDITION BLOCK")
         # return an iterator
-        streaming_model_response = ModelResponse(stream=True)
+        streaming_model_response = ModelResponseChunk()
         streaming_model_response.choices[0].finish_reason = model_response.choices[  # type: ignore
             0
         ].finish_reason
@@ -320,7 +323,7 @@ class AnthropicChatCompletion(BaseLLM):
         response: Union[requests.Response, httpx.Response],
         model_response: ModelResponse,
         stream: bool,
-        logging_obj: litellm.utils.Logging,
+        logging_obj: litellm.litellm_core_utils.litellm_logging.Logging,
         optional_params: dict,
         api_key: str,
         data: Union[dict, str],
