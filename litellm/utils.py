@@ -10120,7 +10120,7 @@ def get_token_count(messages, model):
     return token_counter(model=model, messages=messages)
 
 
-def shorten_message_to_fit_limit(message, tokens_needed, model):
+def shorten_message_to_fit_limit(message: dict, tokens_needed: int, model: str) -> dict:
     """
     Shorten a message to fit within a token limit by removing characters from the middle.
     """
@@ -10132,14 +10132,12 @@ def shorten_message_to_fit_limit(message, tokens_needed, model):
         return message
 
     content = message["content"]
+    total_tokens = get_token_count([message], model)
+    prev_tokens = total_tokens + 1
 
-    while True:
-        total_tokens = get_token_count([message], model)
+    while prev_tokens > total_tokens > tokens_needed:
 
-        if total_tokens <= tokens_needed:
-            break
-
-        ratio = (tokens_needed) / total_tokens
+        ratio = tokens_needed / total_tokens
 
         new_length = int(len(content) * ratio) - 1
         new_length = max(0, new_length)
@@ -10151,6 +10149,9 @@ def shorten_message_to_fit_limit(message, tokens_needed, model):
         trimmed_content = left_half + ".." + right_half
         message["content"] = trimmed_content
         content = trimmed_content
+
+        prev_tokens = total_tokens
+        total_tokens = get_token_count([message], model)
 
     return message
 
