@@ -392,6 +392,7 @@ class RedisCache(BaseCache):
                     service=ServiceTypes.REDIS,
                     duration=_duration,
                     error=e,
+                    call_type="async_redis_failure_hook",
                     start_time=start_time,
                     end_time=end_time,
                     parent_otel_span=_get_parent_otel_span_from_kwargs(kwargs),
