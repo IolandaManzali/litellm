@@ -3462,7 +3462,6 @@ def test_aamazing_unit_test_custom_stream_wrapper_n():
             chunk_dict == chunks[idx]
         ), f"idx={idx} translated chunk = {chunk_dict} != openai chunk = {chunks[idx]}"
 
-
 def test_unit_test_custom_stream_wrapper_function_call():
     """
     Test if model returns a tool call, the finish reason is correctly set to 'tool_calls'
@@ -3513,3 +3512,36 @@ def test_unit_test_custom_stream_wrapper_function_call():
         if chunk.choices[0].finish_reason is not None:
             finish_reason = chunk.choices[0].finish_reason
     assert finish_reason == "tool_calls"
+    
+async def test_async_streaming_completion_clarifai():
+    litellm.set_verbose = True
+
+    user_message = "Hello, how are you?"
+    messages = [{"content": user_message, "role": "user"}]
+    try:
+        response = await acompletion(
+        model="clarifai/openai.chat-completion.GPT-4", 
+        messages=[{"content": "Hello, how are you?", "role": "user"}], 
+        stream=True
+        )
+        # Add any assertions here to check the response
+        print(response)
+        complete_response = ""
+        has_finish_reason = False
+        # Add any assertions here to check the response
+        idx = 0
+        async for chunk in response:
+            # print
+            chunk, finished = streaming_format_tests(idx, chunk)
+            has_finish_reason = finished
+            complete_response += chunk
+            if finished:
+                break
+            idx += 1
+        if has_finish_reason is False:
+            raise Exception("finish reason not set for last chunk")
+        if complete_response.strip() == "":
+            raise Exception("Empty response received")
+        print(f"completion_response: {complete_response}")
+    except Exception as e:
+        pytest.fail(f"An exception occurred - {str(e)}")
