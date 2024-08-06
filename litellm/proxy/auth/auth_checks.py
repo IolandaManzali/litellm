@@ -388,6 +388,12 @@ async def _cache_team_object(
             key=key, value=value
         )
 
+    ## UPDATE REDIS CACHE ##
+    if proxy_logging_obj is not None:
+        await proxy_logging_obj.internal_usage_cache.async_set_cache(
+            key=key, value=team_table
+        )
+
 
 @log_to_opentelemetry
 async def get_team_object(

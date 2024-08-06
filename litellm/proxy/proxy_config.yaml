@@ -26,7 +26,6 @@ model_list:
     model_info:
       mode: audio_speech
 
-
 # for /files endpoints
 files_settings:
   - custom_llm_provider: azure
