@@ -20,7 +20,7 @@ from litellm.utils import (
     get_secret,
     supports_httpx_timeout,
 )
-
+from ..llms.astra_assistants import AstraAssistantsAPI
 from ..llms.azure import AzureAssistantsAPI
 from ..llms.openai import OpenAIAssistantsAPI
 from ..types.llms.openai import *
@@ -28,6 +28,7 @@ from ..types.router import *
 from .utils import get_optional_params_add_message
 
 ####### ENVIRONMENT VARIABLES ###################
+astra_assistants_api = AstraAssistantsAPI()
 openai_assistants_api = OpenAIAssistantsAPI()
 azure_assistants_api = AzureAssistantsAPI()
 
@@ -35,9 +36,9 @@ azure_assistants_api = AzureAssistantsAPI()
 
 
 async def aget_assistants(
-    custom_llm_provider: Literal["openai", "azure"],
-    client: Optional[AsyncOpenAI] = None,
-    **kwargs,
+        custom_llm_provider: Literal["openai", "azure", "astra-assistants"],
+        client: Optional[AsyncOpenAI] = None,
+        **kwargs,
 ) -> AsyncCursorPage[Assistant]:
     loop = asyncio.get_event_loop()
     ### PASS ARGS TO GET ASSISTANTS ###
@@ -72,12 +73,12 @@ async def aget_assistants(
 
 
 def get_assistants(
-    custom_llm_provider: Literal["openai", "azure"],
-    client: Optional[Any] = None,
-    api_key: Optional[str] = None,
-    api_base: Optional[str] = None,
-    api_version: Optional[str] = None,
-    **kwargs,
+        custom_llm_provider: Literal["openai", "azure", "astra-assistants"],
+        client: Optional[Any] = None,
+        api_key: Optional[str] = None,
+        api_base: Optional[str] = None,
+        api_version: Optional[str] = None,
+        **kwargs,
 ) -> SyncCursorPage[Assistant]:
     aget_assistants: Optional[bool] = kwargs.pop("aget_assistants", None)
     if aget_assistants is not None and not isinstance(aget_assistants, bool):
@@ -93,9 +94,9 @@ def get_assistants(
     # set timeout for 10 minutes by default
 
     if (
-        timeout is not None
-        and isinstance(timeout, httpx.Timeout)
-        and supports_httpx_timeout(custom_llm_provider) == False
+            timeout is not None
+            and isinstance(timeout, httpx.Timeout)
+            and supports_httpx_timeout(custom_llm_provider) == False
     ):
         read_timeout = timeout.read or 600
         timeout = read_timeout  # default 10 min timeout
@@ -107,23 +108,23 @@ def get_assistants(
     response: Optional[SyncCursorPage[Assistant]] = None
     if custom_llm_provider == "openai":
         api_base = (
-            optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
-            or litellm.api_base
-            or os.getenv("OPENAI_API_BASE")
-            or "https://api.openai.com/v1"
+                optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
+                or litellm.api_base
+                or os.getenv("OPENAI_API_BASE")
+                or "https://api.openai.com/v1"
         )
         organization = (
-            optional_params.organization
-            or litellm.organization
-            or os.getenv("OPENAI_ORGANIZATION", None)
-            or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
+                optional_params.organization
+                or litellm.organization
+                or os.getenv("OPENAI_ORGANIZATION", None)
+                or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
         )
         # set API KEY
         api_key = (
-            optional_params.api_key
-            or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
-            or litellm.openai_key
-            or os.getenv("OPENAI_API_KEY")
+                optional_params.api_key
+                or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
+                or litellm.openai_key
+                or os.getenv("OPENAI_API_KEY")
         )
 
         response = openai_assistants_api.get_assistants(
@@ -137,21 +138,21 @@ def get_assistants(
         )  # type: ignore
     elif custom_llm_provider == "azure":
         api_base = (
-            optional_params.api_base or litellm.api_base or get_secret("AZURE_API_BASE")
+                optional_params.api_base or litellm.api_base or get_secret("AZURE_API_BASE")
         )  # type: ignore
 
         api_version = (
-            optional_params.api_version
-            or litellm.api_version
-            or get_secret("AZURE_API_VERSION")
+                optional_params.api_version
+                or litellm.api_version
+                or get_secret("AZURE_API_VERSION")
         )  # type: ignore
 
         api_key = (
-            optional_params.api_key
-            or litellm.api_key
-            or litellm.azure_key
-            or get_secret("AZURE_OPENAI_API_KEY")
-            or get_secret("AZURE_API_KEY")
+                optional_params.api_key
+                or litellm.api_key
+                or litellm.azure_key
+                or get_secret("AZURE_OPENAI_API_KEY")
+                or get_secret("AZURE_API_KEY")
         )  # type: ignore
 
         extra_body = optional_params.get("extra_body", {})
@@ -171,9 +172,39 @@ def get_assistants(
             client=client,
             aget_assistants=aget_assistants,  # type: ignore
         )
+    elif custom_llm_provider == "astra-assistants":
+        api_base = (
+                optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
+                or litellm.api_base
+                or os.getenv("OPENAI_API_BASE")
+                or "https://api.openai.com/v1"
+        )
+        organization = (
+                optional_params.organization
+                or litellm.organization
+                or os.getenv("OPENAI_ORGANIZATION", None)
+                or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
+        )
+        # set API KEY
+        api_key = (
+                optional_params.api_key
+                or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
+                or litellm.openai_key
+                or os.getenv("OPENAI_API_KEY")
+        )
+
+        response = astra_assistants_api.get_assistants(
+            api_base=api_base,
+            api_key=api_key,
+            timeout=timeout,
+            max_retries=optional_params.max_retries,
+            organization=organization,
+            client=client,
+            aget_assistants=aget_assistants,  # type: ignore
+        )  # type: ignore
     else:
         raise litellm.exceptions.BadRequestError(
-            message="LiteLLM doesn't support {} for 'get_assistants'. Only 'openai' is supported.".format(
+            message="LiteLLM doesn't support {} for 'get_assistants'. Only 'openai', 'azure', and 'astra-assistants' are supported.".format(
                 custom_llm_provider
             ),
             model="n/a",
@@ -477,7 +508,7 @@ def delete_assistant(
 
 
 async def acreate_thread(
-    custom_llm_provider: Literal["openai", "azure"], **kwargs
+        custom_llm_provider: Literal["openai", "azure", "astra-assistants"], **kwargs
 ) -> Thread:
     loop = asyncio.get_event_loop()
     ### PASS ARGS TO GET ASSISTANTS ###
@@ -512,12 +543,12 @@ async def acreate_thread(
 
 
 def create_thread(
-    custom_llm_provider: Literal["openai", "azure"],
-    messages: Optional[Iterable[OpenAICreateThreadParamsMessage]] = None,
-    metadata: Optional[dict] = None,
-    tool_resources: Optional[OpenAICreateThreadParamsToolResources] = None,
-    client: Optional[OpenAI] = None,
-    **kwargs,
+        custom_llm_provider: Literal["openai", "azure", "astra-assistants"],
+        messages: Optional[Iterable[OpenAICreateThreadParamsMessage]] = None,
+        metadata: Optional[dict] = None,
+        tool_resources: Optional[OpenAICreateThreadParamsToolResources] = None,
+        client: Optional[OpenAI] = None,
+        **kwargs,
 ) -> Thread:
     """
     - get the llm provider
@@ -549,9 +580,9 @@ def create_thread(
     # set timeout for 10 minutes by default
 
     if (
-        timeout is not None
-        and isinstance(timeout, httpx.Timeout)
-        and supports_httpx_timeout(custom_llm_provider) == False
+            timeout is not None
+            and isinstance(timeout, httpx.Timeout)
+            and supports_httpx_timeout(custom_llm_provider) == False
     ):
         read_timeout = timeout.read or 600
         timeout = read_timeout  # default 10 min timeout
@@ -563,23 +594,23 @@ def create_thread(
     response: Optional[Thread] = None
     if custom_llm_provider == "openai":
         api_base = (
-            optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
-            or litellm.api_base
-            or os.getenv("OPENAI_API_BASE")
-            or "https://api.openai.com/v1"
+                optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
+                or litellm.api_base
+                or os.getenv("OPENAI_API_BASE")
+                or "https://api.openai.com/v1"
         )
         organization = (
-            optional_params.organization
-            or litellm.organization
-            or os.getenv("OPENAI_ORGANIZATION", None)
-            or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
+                optional_params.organization
+                or litellm.organization
+                or os.getenv("OPENAI_ORGANIZATION", None)
+                or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
         )
         # set API KEY
         api_key = (
-            optional_params.api_key
-            or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
-            or litellm.openai_key
-            or os.getenv("OPENAI_API_KEY")
+                optional_params.api_key
+                or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
+                or litellm.openai_key
+                or os.getenv("OPENAI_API_KEY")
         )
         response = openai_assistants_api.create_thread(
             messages=messages,
@@ -594,21 +625,21 @@ def create_thread(
         )
     elif custom_llm_provider == "azure":
         api_base = (
-            optional_params.api_base or litellm.api_base or get_secret("AZURE_API_BASE")
+                optional_params.api_base or litellm.api_base or get_secret("AZURE_API_BASE")
         )  # type: ignore
 
         api_version = (
-            optional_params.api_version
-            or litellm.api_version
-            or get_secret("AZURE_API_VERSION")
+                optional_params.api_version
+                or litellm.api_version
+                or get_secret("AZURE_API_VERSION")
         )  # type: ignore
 
         api_key = (
-            optional_params.api_key
-            or litellm.api_key
-            or litellm.azure_key
-            or get_secret("AZURE_OPENAI_API_KEY")
-            or get_secret("AZURE_API_KEY")
+                optional_params.api_key
+                or litellm.api_key
+                or litellm.azure_key
+                or get_secret("AZURE_OPENAI_API_KEY")
+                or get_secret("AZURE_API_KEY")
         )  # type: ignore
 
         extra_body = optional_params.get("extra_body", {})
@@ -633,9 +664,40 @@ def create_thread(
             client=client,
             acreate_thread=acreate_thread,
         )  # type :ignore
+    elif custom_llm_provider == "astra-assistants":
+        api_base = (
+                optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
+                or litellm.api_base
+                or os.getenv("OPENAI_API_BASE")
+                or "https://api.openai.com/v1"
+        )
+        organization = (
+                optional_params.organization
+                or litellm.organization
+                or os.getenv("OPENAI_ORGANIZATION", None)
+                or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
+        )
+        # set API KEY
+        api_key = (
+                optional_params.api_key
+                or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
+                or litellm.openai_key
+                or os.getenv("OPENAI_API_KEY")
+        )
+        response = astra_assistants_api.create_thread(
+            messages=messages,
+            metadata=metadata,
+            api_base=api_base,
+            api_key=api_key,
+            timeout=timeout,
+            max_retries=optional_params.max_retries,
+            organization=organization,
+            client=client,
+            acreate_thread=acreate_thread,
+        )
     else:
         raise litellm.exceptions.BadRequestError(
-            message="LiteLLM doesn't support {} for 'create_thread'. Only 'openai' is supported.".format(
+            message="LiteLLM doesn't support {} for 'create_thread'. Only 'openai', 'azure', and 'astra-assistants' are supported.".format(
                 custom_llm_provider
             ),
             model="n/a",
@@ -650,10 +712,10 @@ def create_thread(
 
 
 async def aget_thread(
-    custom_llm_provider: Literal["openai", "azure"],
-    thread_id: str,
-    client: Optional[AsyncOpenAI] = None,
-    **kwargs,
+        custom_llm_provider: Literal["openai", "azure", "astra-assistants"],
+        thread_id: str,
+        client: Optional[AsyncOpenAI] = None,
+        **kwargs,
 ) -> Thread:
     loop = asyncio.get_event_loop()
     ### PASS ARGS TO GET ASSISTANTS ###
@@ -688,10 +750,10 @@ async def aget_thread(
 
 
 def get_thread(
-    custom_llm_provider: Literal["openai", "azure"],
-    thread_id: str,
-    client=None,
-    **kwargs,
+        custom_llm_provider: Literal["openai", "azure", "astra-assistants"],
+        thread_id: str,
+        client=None,
+        **kwargs,
 ) -> Thread:
     """Get the thread object, given a thread_id"""
     aget_thread = kwargs.pop("aget_thread", None)
@@ -702,9 +764,9 @@ def get_thread(
     # set timeout for 10 minutes by default
 
     if (
-        timeout is not None
-        and isinstance(timeout, httpx.Timeout)
-        and supports_httpx_timeout(custom_llm_provider) == False
+            timeout is not None
+            and isinstance(timeout, httpx.Timeout)
+            and supports_httpx_timeout(custom_llm_provider) == False
     ):
         read_timeout = timeout.read or 600
         timeout = read_timeout  # default 10 min timeout
@@ -716,23 +778,23 @@ def get_thread(
     response: Optional[Thread] = None
     if custom_llm_provider == "openai":
         api_base = (
-            optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
-            or litellm.api_base
-            or os.getenv("OPENAI_API_BASE")
-            or "https://api.openai.com/v1"
+                optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
+                or litellm.api_base
+                or os.getenv("OPENAI_API_BASE")
+                or "https://api.openai.com/v1"
         )
         organization = (
-            optional_params.organization
-            or litellm.organization
-            or os.getenv("OPENAI_ORGANIZATION", None)
-            or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
+                optional_params.organization
+                or litellm.organization
+                or os.getenv("OPENAI_ORGANIZATION", None)
+                or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
         )
         # set API KEY
         api_key = (
-            optional_params.api_key
-            or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
-            or litellm.openai_key
-            or os.getenv("OPENAI_API_KEY")
+                optional_params.api_key
+                or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
+                or litellm.openai_key
+                or os.getenv("OPENAI_API_KEY")
         )
 
         response = openai_assistants_api.get_thread(
@@ -747,21 +809,21 @@ def get_thread(
         )
     elif custom_llm_provider == "azure":
         api_base = (
-            optional_params.api_base or litellm.api_base or get_secret("AZURE_API_BASE")
+                optional_params.api_base or litellm.api_base or get_secret("AZURE_API_BASE")
         )  # type: ignore
 
         api_version = (
-            optional_params.api_version
-            or litellm.api_version
-            or get_secret("AZURE_API_VERSION")
+                optional_params.api_version
+                or litellm.api_version
+                or get_secret("AZURE_API_VERSION")
         )  # type: ignore
 
         api_key = (
-            optional_params.api_key
-            or litellm.api_key
-            or litellm.azure_key
-            or get_secret("AZURE_OPENAI_API_KEY")
-            or get_secret("AZURE_API_KEY")
+                optional_params.api_key
+                or litellm.api_key
+                or litellm.azure_key
+                or get_secret("AZURE_OPENAI_API_KEY")
+                or get_secret("AZURE_API_KEY")
         )  # type: ignore
 
         extra_body = optional_params.get("extra_body", {})
@@ -785,9 +847,40 @@ def get_thread(
             client=client,
             aget_thread=aget_thread,
         )
+    elif custom_llm_provider == "astra-assistants":
+        api_base = (
+                optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
+                or litellm.api_base
+                or os.getenv("OPENAI_API_BASE")
+                or "https://api.openai.com/v1"
+        )
+        organization = (
+                optional_params.organization
+                or litellm.organization
+                or os.getenv("OPENAI_ORGANIZATION", None)
+                or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
+        )
+        # set API KEY
+        api_key = (
+                optional_params.api_key
+                or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
+                or litellm.openai_key
+                or os.getenv("OPENAI_API_KEY")
+        )
+
+        response = astra_assistants_api.get_thread(
+            thread_id=thread_id,
+            api_base=api_base,
+            api_key=api_key,
+            timeout=timeout,
+            max_retries=optional_params.max_retries,
+            organization=organization,
+            client=client,
+            aget_thread=aget_thread,
+        )
     else:
         raise litellm.exceptions.BadRequestError(
-            message="LiteLLM doesn't support {} for 'get_thread'. Only 'openai' is supported.".format(
+            message="LiteLLM doesn't support {} for 'get_thread'. Only 'openai', 'azure', and 'astra-assistants' are supported.".format(
                 custom_llm_provider
             ),
             model="n/a",
@@ -805,14 +898,14 @@ def get_thread(
 
 
 async def a_add_message(
-    custom_llm_provider: Literal["openai", "azure"],
-    thread_id: str,
-    role: Literal["user", "assistant"],
-    content: str,
-    attachments: Optional[List[Attachment]] = None,
-    metadata: Optional[dict] = None,
-    client=None,
-    **kwargs,
+        custom_llm_provider: Literal["openai", "azure", "astra-assistants"],
+        thread_id: str,
+        role: Literal["user", "assistant"],
+        content: str,
+        attachments: Optional[List[Attachment]] = None,
+        metadata: Optional[dict] = None,
+        client=None,
+        **kwargs,
 ) -> OpenAIMessage:
     loop = asyncio.get_event_loop()
     ### PASS ARGS TO GET ASSISTANTS ###
@@ -858,14 +951,14 @@ async def a_add_message(
 
 
 def add_message(
-    custom_llm_provider: Literal["openai", "azure"],
-    thread_id: str,
-    role: Literal["user", "assistant"],
-    content: str,
-    attachments: Optional[List[Attachment]] = None,
-    metadata: Optional[dict] = None,
-    client=None,
-    **kwargs,
+        custom_llm_provider: Literal["openai", "azure", "astra-assistants"],
+        thread_id: str,
+        role: Literal["user", "assistant"],
+        content: str,
+        attachments: Optional[List[Attachment]] = None,
+        metadata: Optional[dict] = None,
+        client=None,
+        **kwargs,
 ) -> OpenAIMessage:
     ### COMMON OBJECTS ###
     a_add_message = kwargs.pop("a_add_message", None)
@@ -887,9 +980,9 @@ def add_message(
     # set timeout for 10 minutes by default
 
     if (
-        timeout is not None
-        and isinstance(timeout, httpx.Timeout)
-        and supports_httpx_timeout(custom_llm_provider) == False
+            timeout is not None
+            and isinstance(timeout, httpx.Timeout)
+            and supports_httpx_timeout(custom_llm_provider) == False
     ):
         read_timeout = timeout.read or 600
         timeout = read_timeout  # default 10 min timeout
@@ -901,23 +994,23 @@ def add_message(
     response: Optional[OpenAIMessage] = None
     if custom_llm_provider == "openai":
         api_base = (
-            optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
-            or litellm.api_base
-            or os.getenv("OPENAI_API_BASE")
-            or "https://api.openai.com/v1"
+                optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
+                or litellm.api_base
+                or os.getenv("OPENAI_API_BASE")
+                or "https://api.openai.com/v1"
         )
         organization = (
-            optional_params.organization
-            or litellm.organization
-            or os.getenv("OPENAI_ORGANIZATION", None)
-            or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
+                optional_params.organization
+                or litellm.organization
+                or os.getenv("OPENAI_ORGANIZATION", None)
+                or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
         )
         # set API KEY
         api_key = (
-            optional_params.api_key
-            or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
-            or litellm.openai_key
-            or os.getenv("OPENAI_API_KEY")
+                optional_params.api_key
+                or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
+                or litellm.openai_key
+                or os.getenv("OPENAI_API_KEY")
         )
         response = openai_assistants_api.add_message(
             thread_id=thread_id,
@@ -932,21 +1025,21 @@ def add_message(
         )
     elif custom_llm_provider == "azure":
         api_base = (
-            optional_params.api_base or litellm.api_base or get_secret("AZURE_API_BASE")
+                optional_params.api_base or litellm.api_base or get_secret("AZURE_API_BASE")
         )  # type: ignore
 
         api_version = (
-            optional_params.api_version
-            or litellm.api_version
-            or get_secret("AZURE_API_VERSION")
+                optional_params.api_version
+                or litellm.api_version
+                or get_secret("AZURE_API_VERSION")
         )  # type: ignore
 
         api_key = (
-            optional_params.api_key
-            or litellm.api_key
-            or litellm.azure_key
-            or get_secret("AZURE_OPENAI_API_KEY")
-            or get_secret("AZURE_API_KEY")
+                optional_params.api_key
+                or litellm.api_key
+                or litellm.azure_key
+                or get_secret("AZURE_OPENAI_API_KEY")
+                or get_secret("AZURE_API_KEY")
         )  # type: ignore
 
         extra_body = optional_params.get("extra_body", {})
@@ -968,9 +1061,40 @@ def add_message(
             client=client,
             a_add_message=a_add_message,
         )
+    elif custom_llm_provider == "astra-assistants":
+        api_base = (
+                optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
+                or litellm.api_base
+                or os.getenv("OPENAI_API_BASE")
+                or "https://api.openai.com/v1"
+        )
+        organization = (
+                optional_params.organization
+                or litellm.organization
+                or os.getenv("OPENAI_ORGANIZATION", None)
+                or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
+        )
+        # set API KEY
+        api_key = (
+                optional_params.api_key
+                or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
+                or litellm.openai_key
+                or os.getenv("OPENAI_API_KEY")
+        )
+        response = astra_assistants_api.add_message(
+            thread_id=thread_id,
+            message_data=message_data,
+            api_base=api_base,
+            api_key=api_key,
+            timeout=timeout,
+            max_retries=optional_params.max_retries,
+            organization=organization,
+            client=client,
+            a_add_message=a_add_message,
+        )
     else:
         raise litellm.exceptions.BadRequestError(
-            message="LiteLLM doesn't support {} for 'create_thread'. Only 'openai' is supported.".format(
+            message="LiteLLM doesn't support {} for 'create_thread'. Only 'openai', 'azùre', 'astra-assistants' is supported.".format(
                 custom_llm_provider
             ),
             model="n/a",
@@ -986,10 +1110,10 @@ def add_message(
 
 
 async def aget_messages(
-    custom_llm_provider: Literal["openai", "azure"],
-    thread_id: str,
-    client: Optional[AsyncOpenAI] = None,
-    **kwargs,
+        custom_llm_provider: Literal["openai", "azure", "astra-assistants"],
+        thread_id: str,
+        client: Optional[AsyncOpenAI] = None,
+        **kwargs,
 ) -> AsyncCursorPage[OpenAIMessage]:
     loop = asyncio.get_event_loop()
     ### PASS ARGS TO GET ASSISTANTS ###
@@ -1031,10 +1155,10 @@ async def aget_messages(
 
 
 def get_messages(
-    custom_llm_provider: Literal["openai", "azure"],
-    thread_id: str,
-    client: Optional[Any] = None,
-    **kwargs,
+        custom_llm_provider: Literal["openai", "azure", "astra-assistants"],
+        thread_id: str,
+        client: Optional[Any] = None,
+        **kwargs,
 ) -> SyncCursorPage[OpenAIMessage]:
     aget_messages = kwargs.pop("aget_messages", None)
     optional_params = GenericLiteLLMParams(**kwargs)
@@ -1044,9 +1168,9 @@ def get_messages(
     # set timeout for 10 minutes by default
 
     if (
-        timeout is not None
-        and isinstance(timeout, httpx.Timeout)
-        and supports_httpx_timeout(custom_llm_provider) == False
+            timeout is not None
+            and isinstance(timeout, httpx.Timeout)
+            and supports_httpx_timeout(custom_llm_provider) == False
     ):
         read_timeout = timeout.read or 600
         timeout = read_timeout  # default 10 min timeout
@@ -1058,23 +1182,23 @@ def get_messages(
     response: Optional[SyncCursorPage[OpenAIMessage]] = None
     if custom_llm_provider == "openai":
         api_base = (
-            optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
-            or litellm.api_base
-            or os.getenv("OPENAI_API_BASE")
-            or "https://api.openai.com/v1"
+                optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
+                or litellm.api_base
+                or os.getenv("OPENAI_API_BASE")
+                or "https://api.openai.com/v1"
         )
         organization = (
-            optional_params.organization
-            or litellm.organization
-            or os.getenv("OPENAI_ORGANIZATION", None)
-            or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
+                optional_params.organization
+                or litellm.organization
+                or os.getenv("OPENAI_ORGANIZATION", None)
+                or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
         )
         # set API KEY
         api_key = (
-            optional_params.api_key
-            or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
-            or litellm.openai_key
-            or os.getenv("OPENAI_API_KEY")
+                optional_params.api_key
+                or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
+                or litellm.openai_key
+                or os.getenv("OPENAI_API_KEY")
         )
         response = openai_assistants_api.get_messages(
             thread_id=thread_id,
@@ -1088,21 +1212,21 @@ def get_messages(
         )
     elif custom_llm_provider == "azure":
         api_base = (
-            optional_params.api_base or litellm.api_base or get_secret("AZURE_API_BASE")
+                optional_params.api_base or litellm.api_base or get_secret("AZURE_API_BASE")
         )  # type: ignore
 
         api_version = (
-            optional_params.api_version
-            or litellm.api_version
-            or get_secret("AZURE_API_VERSION")
+                optional_params.api_version
+                or litellm.api_version
+                or get_secret("AZURE_API_VERSION")
         )  # type: ignore
 
         api_key = (
-            optional_params.api_key
-            or litellm.api_key
-            or litellm.azure_key
-            or get_secret("AZURE_OPENAI_API_KEY")
-            or get_secret("AZURE_API_KEY")
+                optional_params.api_key
+                or litellm.api_key
+                or litellm.azure_key
+                or get_secret("AZURE_OPENAI_API_KEY")
+                or get_secret("AZURE_API_KEY")
         )  # type: ignore
 
         extra_body = optional_params.get("extra_body", {})
@@ -1123,9 +1247,39 @@ def get_messages(
             client=client,
             aget_messages=aget_messages,
         )
+    elif custom_llm_provider == "astra-assistants":
+        api_base = (
+                optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
+                or litellm.api_base
+                or os.getenv("OPENAI_API_BASE")
+                or "https://api.openai.com/v1"
+        )
+        organization = (
+                optional_params.organization
+                or litellm.organization
+                or os.getenv("OPENAI_ORGANIZATION", None)
+                or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
+        )
+        # set API KEY
+        api_key = (
+                optional_params.api_key
+                or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
+                or litellm.openai_key
+                or os.getenv("OPENAI_API_KEY")
+        )
+        response = astra_assistants_api.get_messages(
+            thread_id=thread_id,
+            api_base=api_base,
+            api_key=api_key,
+            timeout=timeout,
+            max_retries=optional_params.max_retries,
+            organization=organization,
+            client=client,
+            aget_messages=aget_messages,
+        )
     else:
         raise litellm.exceptions.BadRequestError(
-            message="LiteLLM doesn't support {} for 'get_messages'. Only 'openai' is supported.".format(
+            message="LiteLLM doesn't support {} for 'get_messages'. Only 'openai', 'azure', and 'astra-assistants' are supported.".format(
                 custom_llm_provider
             ),
             model="n/a",
@@ -1142,26 +1296,26 @@ def get_messages(
 
 ### RUNS ###
 def arun_thread_stream(
-    *,
-    event_handler: Optional[AssistantEventHandler] = None,
-    **kwargs,
+        *,
+        event_handler: Optional[AssistantEventHandler] = None,
+        **kwargs,
 ) -> AsyncAssistantStreamManager[AsyncAssistantEventHandler]:
     kwargs["arun_thread"] = True
     return run_thread(stream=True, event_handler=event_handler, **kwargs)  # type: ignore
 
 
 async def arun_thread(
-    custom_llm_provider: Literal["openai", "azure"],
-    thread_id: str,
-    assistant_id: str,
-    additional_instructions: Optional[str] = None,
-    instructions: Optional[str] = None,
-    metadata: Optional[dict] = None,
-    model: Optional[str] = None,
-    stream: Optional[bool] = None,
-    tools: Optional[Iterable[AssistantToolParam]] = None,
-    client: Optional[Any] = None,
-    **kwargs,
+        custom_llm_provider: Literal["openai", "azure", "astra-assistants"],
+        thread_id: str,
+        assistant_id: str,
+        additional_instructions: Optional[str] = None,
+        instructions: Optional[str] = None,
+        metadata: Optional[dict] = None,
+        model: Optional[str] = None,
+        stream: Optional[bool] = None,
+        tools: Optional[Iterable[AssistantToolParam]] = None,
+        client: Optional[Any] = None,
+        **kwargs,
 ) -> Run:
     loop = asyncio.get_event_loop()
     ### PASS ARGS TO GET ASSISTANTS ###
@@ -1210,26 +1364,26 @@ async def arun_thread(
 
 
 def run_thread_stream(
-    *,
-    event_handler: Optional[AssistantEventHandler] = None,
-    **kwargs,
+        *,
+        event_handler: Optional[AssistantEventHandler] = None,
+        **kwargs,
 ) -> AssistantStreamManager[AssistantEventHandler]:
     return run_thread(stream=True, event_handler=event_handler, **kwargs)  # type: ignore
 
 
 def run_thread(
-    custom_llm_provider: Literal["openai", "azure"],
-    thread_id: str,
-    assistant_id: str,
-    additional_instructions: Optional[str] = None,
-    instructions: Optional[str] = None,
-    metadata: Optional[dict] = None,
-    model: Optional[str] = None,
-    stream: Optional[bool] = None,
-    tools: Optional[Iterable[AssistantToolParam]] = None,
-    client: Optional[Any] = None,
-    event_handler: Optional[AssistantEventHandler] = None,  # for stream=True calls
-    **kwargs,
+        custom_llm_provider: Literal["openai", "azure", "astra-assistants"],
+        thread_id: str,
+        assistant_id: str,
+        additional_instructions: Optional[str] = None,
+        instructions: Optional[str] = None,
+        metadata: Optional[dict] = None,
+        model: Optional[str] = None,
+        stream: Optional[bool] = None,
+        tools: Optional[Iterable[AssistantToolParam]] = None,
+        client: Optional[Any] = None,
+        event_handler: Optional[AssistantEventHandler] = None,  # for stream=True calls
+        **kwargs,
 ) -> Run:
     """Run a given thread + assistant."""
     arun_thread = kwargs.pop("arun_thread", None)
@@ -1240,9 +1394,9 @@ def run_thread(
     # set timeout for 10 minutes by default
 
     if (
-        timeout is not None
-        and isinstance(timeout, httpx.Timeout)
-        and supports_httpx_timeout(custom_llm_provider) == False
+            timeout is not None
+            and isinstance(timeout, httpx.Timeout)
+            and supports_httpx_timeout(custom_llm_provider) == False
     ):
         read_timeout = timeout.read or 600
         timeout = read_timeout  # default 10 min timeout
@@ -1254,23 +1408,23 @@ def run_thread(
     response: Optional[Run] = None
     if custom_llm_provider == "openai":
         api_base = (
-            optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
-            or litellm.api_base
-            or os.getenv("OPENAI_API_BASE")
-            or "https://api.openai.com/v1"
+                optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
+                or litellm.api_base
+                or os.getenv("OPENAI_API_BASE")
+                or "https://api.openai.com/v1"
         )
         organization = (
-            optional_params.organization
-            or litellm.organization
-            or os.getenv("OPENAI_ORGANIZATION", None)
-            or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
+                optional_params.organization
+                or litellm.organization
+                or os.getenv("OPENAI_ORGANIZATION", None)
+                or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
         )
         # set API KEY
         api_key = (
-            optional_params.api_key
-            or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
-            or litellm.openai_key
-            or os.getenv("OPENAI_API_KEY")
+                optional_params.api_key
+                or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
+                or litellm.openai_key
+                or os.getenv("OPENAI_API_KEY")
         )
 
         response = openai_assistants_api.run_thread(
@@ -1293,21 +1447,21 @@ def run_thread(
         )
     elif custom_llm_provider == "azure":
         api_base = (
-            optional_params.api_base or litellm.api_base or get_secret("AZURE_API_BASE")
+                optional_params.api_base or litellm.api_base or get_secret("AZURE_API_BASE")
         )  # type: ignore
 
         api_version = (
-            optional_params.api_version
-            or litellm.api_version
-            or get_secret("AZURE_API_VERSION")
+                optional_params.api_version
+                or litellm.api_version
+                or get_secret("AZURE_API_VERSION")
         )  # type: ignore
 
         api_key = (
-            optional_params.api_key
-            or litellm.api_key
-            or litellm.azure_key
-            or get_secret("AZURE_OPENAI_API_KEY")
-            or get_secret("AZURE_API_KEY")
+                optional_params.api_key
+                or litellm.api_key
+                or litellm.azure_key
+                or get_secret("AZURE_OPENAI_API_KEY")
+                or get_secret("AZURE_API_KEY")
         )  # type: ignore
 
         extra_body = optional_params.get("extra_body", {})
@@ -1335,9 +1489,48 @@ def run_thread(
             client=client,
             arun_thread=arun_thread,
         )  # type: ignore
+    elif custom_llm_provider == "astra-assistants":
+        api_base = (
+                optional_params.api_base  # for deepinfra/perplexity/anyscale/groq we check in get_llm_provider and pass in the api base from there
+                or litellm.api_base
+                or os.getenv("OPENAI_API_BASE")
+                or "https://api.openai.com/v1"
+        )
+        organization = (
+                optional_params.organization
+                or litellm.organization
+                or os.getenv("OPENAI_ORGANIZATION", None)
+                or None  # default - https://github.com/openai/openai-python/blob/284c1799070c723c6a553337134148a7ab088dd8/openai/util.py#L105
+        )
+        # set API KEY
+        api_key = (
+                optional_params.api_key
+                or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
+                or litellm.openai_key
+                or os.getenv("OPENAI_API_KEY")
+        )
+
+        response = astra_assistants_api.run_thread(
+            thread_id=thread_id,
+            assistant_id=assistant_id,
+            additional_instructions=additional_instructions,
+            instructions=instructions,
+            metadata=metadata,
+            model=model,
+            stream=stream,
+            tools=tools,
+            api_base=api_base,
+            api_key=api_key,
+            timeout=timeout,
+            max_retries=optional_params.max_retries,
+            organization=organization,
+            client=client,
+            arun_thread=arun_thread,
+            event_handler=event_handler,
+        )
     else:
         raise litellm.exceptions.BadRequestError(
-            message="LiteLLM doesn't support {} for 'run_thread'. Only 'openai' is supported.".format(
+            message="LiteLLM doesn't support {} for 'run_thread'. Only 'openai', 'azure', and 'astra-assistants' are supported.".format(
                 custom_llm_provider
             ),
             model="n/a",
