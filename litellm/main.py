@@ -2002,6 +2002,12 @@ def completion(
                 or litellm.api_key
             )
 
+            gemini_project = (
+                optional_params.pop("gemini_project", None)
+                or optional_params.pop("gemini_project", None)
+                or get_secret("GEMINI_PROJECT")
+            )
+
             new_params = deepcopy(optional_params)
             response = vertex_chat_completion.completion(  # type: ignore
                 model=model,
@@ -2016,6 +2022,7 @@ def completion(
                 vertex_project=vertex_ai_project,
                 vertex_credentials=vertex_credentials,
                 gemini_api_key=gemini_api_key,
+                gemini_project=gemini_project,
                 logging_obj=logging,
                 acompletion=acompletion,
                 timeout=timeout,
