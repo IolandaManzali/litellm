@@ -69,6 +69,7 @@ from ..integrations.athina import AthinaLogger
 from ..integrations.berrispend import BerriSpendLogger
 from ..integrations.braintrust_logging import BraintrustLogger
 from ..integrations.clickhouse import ClickhouseLogger
+from ..integrations.cloud_watch import CloudWatchLogger
 from ..integrations.custom_logger import CustomLogger
 from ..integrations.datadog.datadog import DataDogLogger
 from ..integrations.dynamodb import DyanmoDBLogger
@@ -120,7 +121,8 @@ lagoLogger = None
 dataDogLogger = None
 prometheusLogger = None
 dynamoLogger = None
-s3Logger = None
+aws_loggers = {}
+cloudWatchLogger = None
 genericAPILogger = None
 clickHouseLogger = None
 greenscaleLogger = None
@@ -684,7 +686,16 @@ class Logging:
                             status="success",
                         )
                     )
-            else:  # streaming chunks + image gen.
+            else:  # streaming chunks, image gen., assistants
+                self.model_call_details["standard_logging_object"] = (
+                    get_standard_logging_object_payload(
+                        kwargs=self.model_call_details,
+                        init_response_obj=result,
+                        start_time=start_time,
+                        end_time=end_time,
+                        logging_obj=self,
+                    )
+                )
                 self.model_call_details["response_cost"] = None
 
             if (
@@ -1156,16 +1167,13 @@ class Logging:
                             user_id=kwargs.get("user", None),
                             print_verbose=print_verbose,
                         )
-                    if callback == "s3":
-                        global s3Logger
-                        if s3Logger is None:
-                            s3Logger = S3Logger()
+                    if callback in ["s3", "cloudwatch"]:
                         if self.stream:
                             if "complete_streaming_response" in self.model_call_details:
                                 print_verbose(
-                                    "S3Logger Logger: Got Stream Event - Completed Stream Response"
+                                    f"{callback.capitalize()} Logger: Got Stream Event - Completed Stream Response"
                                 )
-                                s3Logger.log_event(
+                                aws_loggers[callback].log_event(
                                     kwargs=self.model_call_details,
                                     response_obj=self.model_call_details[
                                         "complete_streaming_response"
@@ -1174,12 +1182,20 @@ class Logging:
                                     end_time=end_time,
                                     print_verbose=print_verbose,
                                 )
+                            elif self.model_call_details.get("log_event_type") == "successful_api_call":
+                                aws_loggers[callback].log_event(
+                                    kwargs=self.model_call_details,
+                                    response_obj=result,
+                                    start_time=start_time,
+                                    end_time=end_time,
+                                    print_verbose=print_verbose,
+                                )
                             else:
                                 print_verbose(
-                                    "S3Logger Logger: Got Stream Event - No complete stream response as yet"
+                                    f"{callback.capitalize()} Logger: Got Stream Event - No complete stream response as yet"
                                 )
                         else:
-                            s3Logger.log_event(
+                            aws_loggers[callback].log_event(
                                 kwargs=self.model_call_details,
                                 response_obj=result,
                                 start_time=start_time,
@@ -1996,7 +2012,7 @@ def set_callbacks(callback_list, function_id=None):
     """
     Globally sets the callback client
     """
-    global sentry_sdk_instance, capture_exception, add_breadcrumb, posthog, slack_app, alerts_channel, traceloopLogger, athinaLogger, heliconeLogger, aispendLogger, berrispendLogger, supabaseClient, liteDebuggerClient, lunaryLogger, promptLayerLogger, langFuseLogger, customLogger, weightsBiasesLogger, logfireLogger, dynamoLogger, s3Logger, dataDogLogger, prometheusLogger, greenscaleLogger, openMeterLogger
+    global sentry_sdk_instance, capture_exception, add_breadcrumb, posthog, slack_app, alerts_channel, traceloopLogger, athinaLogger, heliconeLogger, aispendLogger, berrispendLogger, supabaseClient, liteDebuggerClient, lunaryLogger, promptLayerLogger, langFuseLogger, customLogger, weightsBiasesLogger, logfireLogger, dynamoLogger, aws_loggers, dataDogLogger, prometheusLogger, greenscaleLogger, openMeterLogger
 
     try:
         for callback in callback_list:
@@ -2070,8 +2086,10 @@ def set_callbacks(callback_list, function_id=None):
                 dataDogLogger = DataDogLogger()
             elif callback == "dynamodb":
                 dynamoLogger = DyanmoDBLogger()
-            elif callback == "s3":
-                s3Logger = S3Logger()
+            elif callback in ["s3", "cloudwatch"]:
+                if callback not in aws_loggers:
+                    aws_loggers[callback] = S3Logger() if callback == "s3" else CloudWatchLogger()
+                print_verbose(f"Initialized {callback.capitalize()} Logger")
             elif callback == "wandb":
                 weightsBiasesLogger = WeightsBiasesLogger()
             elif callback == "logfire":
@@ -2477,35 +2495,38 @@ def get_standard_logging_object_payload(
 
         ## Get model cost information ##
         base_model = _get_base_model_from_metadata(model_call_details=kwargs)
-        custom_pricing = use_custom_pricing_for_model(litellm_params=litellm_params)
-        model_cost_name = _select_model_name_for_cost_calc(
-            model=None,
-            completion_response=init_response_obj,  # type: ignore
-            base_model=base_model,
-            custom_pricing=custom_pricing,
-        )
-        if model_cost_name is None:
-            model_cost_information = StandardLoggingModelInformation(
-                model_map_key="", model_map_value=None
-            )
+        if base_model is None:
+            model_cost_information = None
         else:
-            custom_llm_provider = kwargs.get("custom_llm_provider", None)
+            custom_pricing = use_custom_pricing_for_model(litellm_params=litellm_params)
+            model_cost_name = _select_model_name_for_cost_calc(
+                model=None,
+                completion_response=init_response_obj,  # type: ignore
+                base_model=base_model,
+                custom_pricing=custom_pricing,
+            )
+            if model_cost_name is None:
+                model_cost_information = StandardLoggingModelInformation(
+                    model_map_key="", model_map_value=None
+                )
+            else:
+                custom_llm_provider = kwargs.get("custom_llm_provider", None)
 
-            try:
-                _model_cost_information = litellm.get_model_info(
-                    model=model_cost_name, custom_llm_provider=custom_llm_provider
-                )
-                model_cost_information = StandardLoggingModelInformation(
-                    model_map_key=model_cost_name,
-                    model_map_value=_model_cost_information,
-                )
-            except Exception:
-                verbose_logger.debug(  # keep in debug otherwise it will trigger on every call
-                    "Model is not mapped in model cost map. Defaulting to None model_cost_information for standard_logging_payload"
-                )
-                model_cost_information = StandardLoggingModelInformation(
-                    model_map_key=model_cost_name, model_map_value=None
-                )
+                try:
+                    _model_cost_information = litellm.get_model_info(
+                        model=model_cost_name, custom_llm_provider=custom_llm_provider
+                    )
+                    model_cost_information = StandardLoggingModelInformation(
+                        model_map_key=model_cost_name,
+                        model_map_value=_model_cost_information,
+                    )
+                except Exception:
+                    verbose_logger.debug(  # keep in debug otherwise it will trigger on every call
+                        "Model is not mapped in model cost map. Defaulting to None model_cost_information for standard_logging_payload"
+                    )
+                    model_cost_information = StandardLoggingModelInformation(
+                        model_map_key=model_cost_name, model_map_value=None
+                    )
 
         payload: StandardLoggingPayload = StandardLoggingPayload(
             id=str(id),
