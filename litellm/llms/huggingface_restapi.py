@@ -13,6 +13,7 @@ import requests
 
 import litellm
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
+from litellm.litellm_core_utils.ssl_utils import get_ssl_verify
 from litellm.types.completion import ChatCompletionMessageToolCallParam
 from litellm.utils import Choices, CustomStreamWrapper, Message, ModelResponse, Usage
 
@@ -619,9 +620,7 @@ class Huggingface(BaseLLM):
             ## COMPLETION CALL
 
             # SSL certificates (a.k.a CA bundle) used to verify the identity of requested hosts.
-            ssl_verify = os.getenv("SSL_VERIFY", litellm.ssl_verify)
-            if ssl_verify in ["True", "False"]:
-                ssl_verify = bool(ssl_verify)
+            ssl_verify = get_ssl_verify()
 
             if acompletion is True:
                 ### ASYNC STREAMING
@@ -743,7 +742,7 @@ class Huggingface(BaseLLM):
         timeout: float,
     ):
         # SSL certificates (a.k.a CA bundle) used to verify the identity of requested hosts.
-        ssl_verify = os.getenv("SSL_VERIFY", litellm.ssl_verify)
+        ssl_verify = get_ssl_verify()
 
         response = None
         try:
@@ -800,7 +799,7 @@ class Huggingface(BaseLLM):
         timeout: float,
     ):
         # SSL certificates (a.k.a CA bundle) used to verify the identity of requested hosts.
-        ssl_verify = os.getenv("SSL_VERIFY", litellm.ssl_verify)
+        ssl_verify = get_ssl_verify()
 
         async with httpx.AsyncClient(timeout=timeout, verify=ssl_verify) as client:
             response = client.stream(
