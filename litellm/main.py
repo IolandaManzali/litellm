@@ -62,7 +62,7 @@ from litellm.utils import (
     supports_httpx_timeout,
     token_counter,
 )
-
+from .types.message_dict import MessageDict
 from ._logging import verbose_logger
 from .caching import disable_cache, enable_cache, update_cache
 from .llms import (
@@ -266,7 +266,7 @@ class AsyncCompletions:
 async def acompletion(
     model: str,
     # Optional OpenAI params: see https://platform.openai.com/docs/api-reference/chat/create
-    messages: List = [],
+    messages: List[MessageDict] = [],
     functions: Optional[List] = None,
     function_call: Optional[str] = None,
     timeout: Optional[Union[float, int]] = None,
@@ -485,7 +485,7 @@ async def _async_streaming(response, model, custom_llm_provider, args):
 
 def mock_completion(
     model: str,
-    messages: List,
+    messages: List[MessageDict],
     stream: Optional[bool] = False,
     n: Optional[int] = None,
     mock_response: Union[str, Exception, dict] = "This is a mock request",
@@ -651,7 +651,7 @@ def mock_completion(
 def completion(  # type: ignore
     model: str,
     # Optional OpenAI params: see https://platform.openai.com/docs/api-reference/chat/create
-    messages: List = [],
+    messages: List[MessageDict] = [],
     timeout: Optional[Union[float, str, httpx.Timeout]] = None,
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
@@ -2985,7 +2985,7 @@ async def acompletion_with_retries(*args, **kwargs):
 def batch_completion(
     model: str,
     # Optional OpenAI params: see https://platform.openai.com/docs/api-reference/chat/create
-    messages: List = [],
+    messages: List[MessageDict] = [],
     functions: Optional[List] = None,
     function_call: Optional[str] = None,
     temperature: Optional[float] = None,

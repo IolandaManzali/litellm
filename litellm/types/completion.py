@@ -1,5 +1,6 @@
 from typing import Iterable, List, Optional, Union
 
+from .message_dict import MessageDict
 from pydantic import BaseModel, ConfigDict, validator
 from typing_extensions import Literal, Required, TypedDict
 
@@ -164,7 +165,7 @@ ChatCompletionMessageParam = Union[
 
 class CompletionRequest(BaseModel):
     model: str
-    messages: List[str] = []
+    messages: List[MessageDict] = []
     timeout: Optional[Union[float, int]] = None
     temperature: Optional[float] = None
     top_p: Optional[float] = None
