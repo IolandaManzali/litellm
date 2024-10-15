@@ -105,6 +105,7 @@ from .llms.OpenAI.audio_transcriptions import OpenAIAudioTranscription
 from .llms.OpenAI.chat.o1_handler import OpenAIO1ChatCompletion
 from .llms.OpenAI.openai import OpenAIChatCompletion, OpenAITextCompletion
 from .llms.predibase import PredibaseChatCompletion
+from .llms.snowflake.completion import SnowflakeTextCompletion
 from .llms.prompt_templates.factory import (
     custom_prompt,
     function_call_prompt,
@@ -176,6 +177,7 @@ azure_ai_chat_completions = AzureAIChatCompletion()
 azure_ai_embedding = AzureAIEmbedding()
 anthropic_chat_completions = AnthropicChatCompletion()
 anthropic_text_completions = AnthropicTextCompletion()
+snowflake_text_completions = SnowflakeTextCompletion()
 azure_chat_completions = AzureChatCompletion()
 azure_o1_chat_completions = AzureOpenAIO1ChatCompletion()
 azure_text_completions = AzureTextCompletion()
@@ -415,6 +417,7 @@ async def acompletion(
             or custom_llm_provider == "vertex_ai"
             or custom_llm_provider == "vertex_ai_beta"
             or custom_llm_provider == "gemini"
+            or custom_llm_provider == "snowflake"
             or custom_llm_provider == "sagemaker"
             or custom_llm_provider == "sagemaker_chat"
             or custom_llm_provider == "anthropic"
@@ -1727,6 +1730,50 @@ def completion(  # type: ignore
                     client=client,
                 )
             if optional_params.get("stream", False) or acompletion is True:
+                ## LOGGING
+                logging.post_call(
+                    input=messages,
+                    api_key=api_key,
+                    original_response=response,
+                )
+            response = response
+
+        elif custom_llm_provider == "snowflake":
+            api_key = (
+                api_key
+                or litellm.snowflake_key
+                or litellm.snowflake_key
+                or os.environ.get("SNOWFLAKE_API_KEY")
+            )
+            custom_prompt_dict = custom_prompt_dict or litellm.custom_prompt_dict
+
+            api_base = (
+                api_base
+                or litellm.api_base
+                or f"""https://{get_secret("SNOWFLAKE_ACCOUNT")}.snowflakecomputing.com/api/v2/cortex/inference:complete"""
+                or f"""https://{get_secret("SNOWFLAKE_ACCOUNT_ID")}.snowflakecomputing.com/api/v2/cortex/inference:complete"""
+                or get_secret("SNOWFLAKE_API_BASE")
+                or get_secret("SNOWFLAKE_BASE_URL")
+            )
+
+            response = snowflake_text_completions.completion(
+                model=model,
+                messages=messages,
+                api_base=api_base,
+                acompletion=acompletion,
+                custom_prompt_dict=litellm.custom_prompt_dict,
+                model_response=model_response,
+                print_verbose=print_verbose,
+                optional_params=optional_params,
+                litellm_params=litellm_params,
+                logger_fn=logger_fn,
+                encoding=encoding,  # for calculating input/output tokens
+                api_key=api_key,
+                logging_obj=logging,
+                headers=headers,
+            )
+
+            if optional_params.get("stream", False) or acompletion == True:
                 ## LOGGING
                 logging.post_call(
                     input=messages,
