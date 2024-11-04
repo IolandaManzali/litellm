@@ -13,6 +13,7 @@ from typing import Optional, cast
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
+import jwt.algorithms
 
 from litellm._logging import verbose_proxy_logger
 from litellm.caching.caching import DualCache
@@ -232,7 +233,8 @@ class JWTHandler:
         # Supported algos: https://pyjwt.readthedocs.io/en/stable/algorithms.html
         # "Warning: Make sure not to mix symmetric and asymmetric algorithms that interpret
         #   the key in different ways (e.g. HS* and RS*)."
-        algorithms = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512"]
+        RSA_ALGORITHMS = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512"]
+        ECSDA_ALGORITHMS = ["ES256", "ES256K", "ES384", "ES512"]
 
         audience = os.getenv("JWT_AUDIENCE")
         decode_options = None
@@ -240,13 +242,22 @@ class JWTHandler:
             decode_options = {"verify_aud": False}
 
         import jwt
-        from jwt.algorithms import RSAAlgorithm
-
         header = jwt.get_unverified_header(token)
 
         verbose_proxy_logger.debug("header: %s", header)
 
         kid = header.get("kid", None)
+        
+        alg = header.get("alg")
+        algClass = None
+        if alg in RSA_ALGORITHMS:
+            from jwt.algorithms import RSAAlgorithm
+            algClass = RSAAlgorithm
+        elif alg in ECSDA_ALGORITHMS:
+            from jwt.algorithms import ECAlgorithm
+            algClass = ECAlgorithm
+        else:
+            raise Exception(f"JWT Auth {alg} not implemented")
 
         public_key = await self.get_public_key(kid=kid)
 
@@ -261,14 +272,14 @@ class JWTHandler:
             if "e" in public_key:
                 jwk["e"] = public_key["e"]
 
-            public_key_rsa = RSAAlgorithm.from_jwk(json.dumps(jwk))
+            public_key = algClass.from_jwk(json.dumps(jwk))
 
             try:
                 # decode the token using the public key
                 payload = jwt.decode(
                     token,
-                    public_key_rsa,  # type: ignore
-                    algorithms=algorithms,
+                    public_key,  # type: ignore
+                    algorithms=[alg],
                     options=decode_options,
                     audience=audience,
                 )
@@ -286,7 +297,7 @@ class JWTHandler:
                 )
 
                 # Extract public key
-                key = cert.public_key().public_bytes(
+                public_key = cert.public_key().public_bytes(
                     serialization.Encoding.PEM,
                     serialization.PublicFormat.SubjectPublicKeyInfo,
                 )
@@ -294,8 +305,8 @@ class JWTHandler:
                 # decode the token using the public key
                 payload = jwt.decode(
                     token,
-                    key,
-                    algorithms=algorithms,
+                    public_key,
+                    algorithms=[alg],
                     audience=audience,
                     options=decode_options,
                 )
