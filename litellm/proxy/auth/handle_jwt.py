@@ -262,14 +262,10 @@ class JWTHandler:
 
         if public_key is not None and isinstance(public_key, dict):
             jwk = {}
-            if "kty" in public_key:
-                jwk["kty"] = public_key["kty"]
-            if "kid" in public_key:
-                jwk["kid"] = public_key["kid"]
-            if "n" in public_key:
-                jwk["n"] = public_key["n"]
-            if "e" in public_key:
-                jwk["e"] = public_key["e"]
+            supported_attributes = ["kty", "kid", "n", "e", "x", "y", "crv"]
+            for attribute in supported_attributes:
+                if attribute in public_key:
+                    jwk[attribute] = public_key[attribute]
 
             public_key = algClass.from_jwk(json.dumps(jwk))
 
