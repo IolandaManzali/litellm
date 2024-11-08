@@ -1339,6 +1339,7 @@ class ResponseFormatChunk(TypedDict, total=False):
 
 all_litellm_params = [
     "metadata",
+    "user_to_llm_metadata",
     "tags",
     "acompletion",
     "aimg_generation",
@@ -1410,6 +1411,7 @@ all_litellm_params = [
     "user_continue_message",
     "fallback_depth",
     "max_fallbacks",
+    "litellm_metadata",
 ]
 
 

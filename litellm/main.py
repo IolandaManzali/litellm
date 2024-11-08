@@ -320,6 +320,7 @@ async def acompletion(
     tools: Optional[List] = None,
     tool_choice: Optional[str] = None,
     parallel_tool_calls: Optional[bool] = None,
+    metadata: Optional[dict] = None,
     logprobs: Optional[bool] = None,
     top_logprobs: Optional[int] = None,
     deployment_id=None,
@@ -714,6 +715,7 @@ def completion(  # type: ignore # noqa: PLR0915
     logprobs: Optional[bool] = None,
     top_logprobs: Optional[int] = None,
     parallel_tool_calls: Optional[bool] = None,
+    metadata: Optional[dict] = None,
     deployment_id=None,
     extra_headers: Optional[dict] = None,
     # soon to be deprecated params by OpenAI
@@ -753,7 +755,7 @@ def completion(  # type: ignore # noqa: PLR0915
         user (str, optional):  A unique identifier representing your end-user. This can help the LLM provider to monitor and detect abuse.
         logprobs (bool, optional): Whether to return log probabilities of the output tokens or not. If true, returns the log probabilities of each output token returned in the content of message
         top_logprobs (int, optional): An integer between 0 and 5 specifying the number of most likely tokens to return at each token position, each with an associated log probability. logprobs must be set to true if this parameter is used.
-        metadata (dict, optional): Pass in additional metadata to tag your completion calls - eg. prompt version, details, etc.
+        metadata (dict, optional): Pass in additional metadata to tag your completion calls - eg. prompt version, details, etc. [Sent to OPENAI. To pass litellm-specific metadata (e.g. langfuse trace, use 'litellm_metadata')]
         api_base (str, optional): Base URL for the API (default is None).
         api_version (str, optional): API version (default is None).
         api_key (str, optional): API key (default is None).
@@ -783,7 +785,9 @@ def completion(  # type: ignore # noqa: PLR0915
     custom_llm_provider = kwargs.get("custom_llm_provider", None)
     litellm_logging_obj = kwargs.get("litellm_logging_obj", None)
     id = kwargs.get("id", None)
-    metadata = kwargs.get("metadata", None)
+    litellm_metadata: dict = kwargs.get("litellm_metadata", None) or {}
+    if metadata is not None:
+        litellm_metadata.update(metadata)
     model_info = kwargs.get("model_info", None)
     proxy_server_request = kwargs.get("proxy_server_request", None)
     fallbacks = kwargs.get("fallbacks", None)
@@ -877,6 +881,7 @@ def completion(  # type: ignore # noqa: PLR0915
         "logprobs",
         "top_logprobs",
         "extra_headers",
+        "metadata",
     ]
 
     default_params = openai_params + all_litellm_params
@@ -1026,6 +1031,7 @@ def completion(  # type: ignore # noqa: PLR0915
             api_version=api_version,
             parallel_tool_calls=parallel_tool_calls,
             messages=messages,
+            metadata=metadata,
             **non_default_params,
         )
 
@@ -1051,7 +1057,7 @@ def completion(  # type: ignore # noqa: PLR0915
             litellm_call_id=kwargs.get("litellm_call_id", None),
             model_alias_map=litellm.model_alias_map,
             completion_call_id=id,
-            metadata=metadata,
+            metadata=litellm_metadata,
             model_info=model_info,
             proxy_server_request=proxy_server_request,
             preset_cache_key=preset_cache_key,
