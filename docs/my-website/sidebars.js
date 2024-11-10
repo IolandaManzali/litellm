@@ -280,6 +280,7 @@ const sidebars = {
         "observability/gcs_bucket_integration",
         "observability/langsmith_integration",
         "observability/literalai_integration",
+        "observability/scope3_integration",
         "observability/opentelemetry_integration",
         "observability/logfire_integration",
         "observability/argilla",

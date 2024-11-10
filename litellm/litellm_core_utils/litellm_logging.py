@@ -84,6 +84,7 @@ from ..integrations.prometheus import PrometheusLogger
 from ..integrations.prometheus_services import PrometheusServicesLogger
 from ..integrations.prompt_layer import PromptLayerLogger
 from ..integrations.s3 import S3Logger
+from ..integrations.scope3 import Scope3Logger
 from ..integrations.supabase import Supabase
 from ..integrations.traceloop import TraceloopLogger
 from ..integrations.weights_biases import WeightsBiasesLogger
@@ -122,6 +123,7 @@ dataDogLogger = None
 prometheusLogger = None
 dynamoLogger = None
 s3Logger = None
+scope3Logger = None
 genericAPILogger = None
 greenscaleLogger = None
 lunaryLogger = None
@@ -1168,6 +1170,29 @@ class Logging:
                             user_id=kwargs.get("user", None),
                             print_verbose=print_verbose,
                         )
+                    if callback == "scope3" and scope3Logger is not None:
+                        kwargs = {}
+                        for k, v in self.model_call_details.items():
+                            if (
+                                k != "original_response"
+                            ):  # copy.deepcopy raises errors as this could be a coroutine
+                                kwargs[k] = v
+                        # this only logs streaming once, complete_streaming_response exists i.e when stream ends
+                        if self.stream:
+                            verbose_logger.debug(
+                                f"is complete_streaming_response in kwargs: {kwargs.get('complete_streaming_response', None)}"
+                            )
+                            if complete_streaming_response is None:
+                                continue
+                            else:
+                                result = kwargs["complete_streaming_response"]
+                        scope3Logger.log_event(
+                            kwargs=kwargs,
+                            response_obj=result,
+                            start_time=start_time,
+                            end_time=end_time,
+                            print_verbose=print_verbose,
+                        )
                     if callback == "greenscale" and greenscaleLogger is not None:
                         kwargs = {}
                         for k, v in self.model_call_details.items():
@@ -2044,7 +2069,7 @@ def set_callbacks(callback_list, function_id=None):  # noqa: PLR0915
     """
     Globally sets the callback client
     """
-    global sentry_sdk_instance, capture_exception, add_breadcrumb, posthog, slack_app, alerts_channel, traceloopLogger, athinaLogger, heliconeLogger, supabaseClient, lunaryLogger, promptLayerLogger, langFuseLogger, customLogger, weightsBiasesLogger, logfireLogger, dynamoLogger, s3Logger, dataDogLogger, prometheusLogger, greenscaleLogger, openMeterLogger
+    global sentry_sdk_instance, capture_exception, add_breadcrumb, posthog, slack_app, alerts_channel, traceloopLogger, athinaLogger, heliconeLogger, supabaseClient, lunaryLogger, promptLayerLogger, langFuseLogger, customLogger, weightsBiasesLogger, logfireLogger, dynamoLogger, s3Logger, scope3Logger, dataDogLogger, prometheusLogger, greenscaleLogger, openMeterLogger
 
     try:
         for callback in callback_list:
@@ -2151,6 +2176,14 @@ def _init_custom_logger_compatible_class(  # noqa: PLR0915
         lago_logger = LagoLogger()
         _in_memory_loggers.append(lago_logger)
         return lago_logger  # type: ignore
+    elif logging_integration == "scope3":
+        for callback in _in_memory_loggers:
+            if isinstance(callback, Scope3Logger):
+                return callback  # type: ignore
+
+        scope3_logger = Scope3Logger()
+        _in_memory_loggers.append(scope3_logger)
+        return scope3_logger  # type: ignore
     elif logging_integration == "openmeter":
         for callback in _in_memory_loggers:
             if isinstance(callback, OpenMeterLogger):
@@ -2345,6 +2378,10 @@ def get_custom_logger_compatible_class(
     if logging_integration == "lago":
         for callback in _in_memory_loggers:
             if isinstance(callback, LagoLogger):
+                return callback
+    elif logging_integration == "scope3":
+        for callback in _in_memory_loggers:
+            if isinstance(callback, Scope3Logger):
                 return callback
     elif logging_integration == "openmeter":
         for callback in _in_memory_loggers:

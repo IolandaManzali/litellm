@@ -224,6 +224,7 @@ dataDogLogger = None
 prometheusLogger = None
 dynamoLogger = None
 s3Logger = None
+scope3Logger = None
 genericAPILogger = None
 greenscaleLogger = None
 lunaryLogger = None
@@ -5688,7 +5689,7 @@ class CustomStreamWrapper:
 
             if chunk.startswith(self.complete_response):
                 # Remove last_sent_chunk only if it appears at the start of the new chunk
-                chunk = chunk[len(self.complete_response) :]
+                chunk = chunk[len(self.complete_response):]
 
             self.complete_response += chunk
             return chunk
@@ -5705,7 +5706,7 @@ class CustomStreamWrapper:
         """
         if len(self.chunks) >= litellm.REPEATED_STREAMING_CHUNK_LIMIT:
             # Get the last n chunks
-            last_chunks = self.chunks[-litellm.REPEATED_STREAMING_CHUNK_LIMIT :]
+            last_chunks = self.chunks[-litellm.REPEATED_STREAMING_CHUNK_LIMIT:]
 
             # Extract the relevant content from the chunks
             last_contents = [chunk.choices[0].delta.content for chunk in last_chunks]
@@ -7694,7 +7695,7 @@ def mock_completion_streaming_obj(
     if isinstance(mock_response, litellm.MockException):
         raise mock_response
     for i in range(0, len(mock_response), 3):
-        completion_obj = Delta(role="assistant", content=mock_response[i : i + 3])
+        completion_obj = Delta(role="assistant", content=mock_response[i: i + 3])
         if n is None:
             model_response.choices[0].delta = completion_obj
         else:
@@ -7703,7 +7704,7 @@ def mock_completion_streaming_obj(
                 _streaming_choice = litellm.utils.StreamingChoices(
                     index=j,
                     delta=litellm.utils.Delta(
-                        role="assistant", content=mock_response[i : i + 3]
+                        role="assistant", content=mock_response[i: i + 3]
                     ),
                 )
                 _all_choices.append(_streaming_choice)
@@ -7717,7 +7718,7 @@ async def async_mock_completion_streaming_obj(
     if isinstance(mock_response, litellm.MockException):
         raise mock_response
     for i in range(0, len(mock_response), 3):
-        completion_obj = Delta(role="assistant", content=mock_response[i : i + 3])
+        completion_obj = Delta(role="assistant", content=mock_response[i: i + 3])
         if n is None:
             model_response.choices[0].delta = completion_obj
         else:
@@ -7726,7 +7727,7 @@ async def async_mock_completion_streaming_obj(
                 _streaming_choice = litellm.utils.StreamingChoices(
                     index=j,
                     delta=litellm.utils.Delta(
-                        role="assistant", content=mock_response[i : i + 3]
+                        role="assistant", content=mock_response[i: i + 3]
                     ),
                 )
                 _all_choices.append(_streaming_choice)
