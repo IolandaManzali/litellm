@@ -9,6 +9,7 @@ Run checks for:
 3. If end_user ('user' passed to /chat/completions, /embeddings endpoint) is in budget 
 """
 
+import re
 import time
 import traceback
 from datetime import datetime
@@ -34,6 +35,7 @@ from litellm.proxy._types import (
 )
 from litellm.proxy.auth.route_checks import RouteChecks
 from litellm.proxy.utils import PrismaClient, ProxyLogging, log_db_metrics
+from litellm.router_utils.pattern_match_deployments import PatternMatchRouter
 from litellm.types.services import ServiceLoggerPayload, ServiceTypes
 
 from .auth_checks_organization import organization_role_based_access_check
@@ -48,8 +50,8 @@ else:
 
 last_db_access_time = LimitedSizeOrderedDict(max_size=100)
 db_cache_expiry = 5  # refresh every 5s
-
 all_routes = LiteLLMRoutes.openai_routes.value + LiteLLMRoutes.management_routes.value
+pattern_router = PatternMatchRouter()
 
 
 def common_checks(  # noqa: PLR0915
@@ -90,16 +92,14 @@ def common_checks(  # noqa: PLR0915
     ):
         # this means the team has access to all models on the proxy
         if (
-            "all-proxy-models" in team_object.models
-            or "*" in team_object.models
-            or "openai/*" in team_object.models
+            _model_is_within_list_of_allowed_models(
+                model=_model, allowed_models=team_object.models
+            )
+            is True
         ):
-            # this means the team has access to all models on the proxy
             pass
         # check if the team model is an access_group
         elif model_in_access_group(_model, team_object.models) is True:
-            pass
-        elif _model and "*" in _model:
             pass
         else:
             raise Exception(
@@ -828,7 +828,7 @@ async def can_key_call_model(
     model: str, llm_model_list: Optional[list], valid_token: UserAPIKeyAuth
 ) -> Literal[True]:
     """
-    Checks if token can call a given model
+    Checks if token can call a given model, supporting regex/wildcard patterns
 
     Returns:
         - True: if token allowed to call model
@@ -863,25 +863,81 @@ async def can_key_call_model(
 
     # Filter out models that are access_groups
     filtered_models = [m for m in valid_token.models if m not in access_groups]
-
     filtered_models += models_in_current_access_groups
     verbose_proxy_logger.debug(f"model: {model}; allowed_models: {filtered_models}")
 
-    all_model_access: bool = False
-
     if (
-        len(filtered_models) == 0
-        or "*" in filtered_models
-        or "openai/*" in filtered_models
+        _model_is_within_list_of_allowed_models(
+            model=model, allowed_models=filtered_models
+        )
+        is False
     ):
-        all_model_access = True
-
-    if model is not None and model not in filtered_models and all_model_access is False:
         raise ValueError(
             f"API Key not allowed to access model. This token can only access models={valid_token.models}. Tried to access {model}"
         )
+
     valid_token.models = filtered_models
     verbose_proxy_logger.debug(
         f"filtered allowed_models: {filtered_models}; valid_token.models: {valid_token.models}"
     )
     return True
+
+
+def _model_is_within_list_of_allowed_models(
+    model: str, allowed_models: List[str]
+) -> bool:
+    """
+    Checks if a model is within a list of allowed models (includes pattern matching checks)
+
+    Args:
+        model (str): The model to check (e.g., "custom_engine/model-123")
+        allowed_models (List[str]): List of allowed model patterns (e.g., ["custom_engine/*", "azure/gpt-4", "claude-sonnet"])
+
+    Returns:
+        bool: True if
+            - len(allowed_models) == 0
+            - "*" in allowed_models (means all models are allowed)
+            - "all-proxy-models" in allowed_models (means all models are allowed)
+            - model is in allowed_models list
+            - model matches any allowed pattern
+    """
+    # Check for universal access patterns
+    if len(allowed_models) == 0:
+        return True
+    if "*" in allowed_models:
+        return True
+    if "all-proxy-models" in allowed_models:
+        return True
+    # Note: This is here to maintain backwards compatibility. This Used to be in our code and removing could impact existing customer code
+    if "openai/*" in allowed_models:
+        return True
+    if model in allowed_models:
+        return True
+    if _model_matches_patterns(model=model, allowed_models=allowed_models) is True:
+        return True
+
+    return False
+
+
+def _model_matches_patterns(model: str, allowed_models: List[str]) -> bool:
+    """
+    Helper function to check if a model matches any of the allowed model patterns.
+
+    Args:
+        model (str): The model to check (e.g., "custom_engine/model-123")
+        allowed_models (List[str]): List of allowed model patterns (e.g., ["custom_engine/*", "azure/gpt-4*"])
+
+    Returns:
+        bool: True if model matches any allowed pattern, False otherwise
+    """
+    try:
+        # Create pattern router instance
+        for _model in allowed_models:
+            if "*" in _model:
+                regex_pattern = pattern_router._pattern_to_regex(_model)
+                if re.match(regex_pattern, model):
+                    return True
+        return False
+    except Exception as e:
+        verbose_proxy_logger.exception(f"Error in model_matches_patterns: {str(e)}")
+        return False
